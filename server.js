@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -28,7 +29,7 @@ async function actualizarYTransmitirPartidos() {
     // 1. Llamada a la API Real
     const response = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
       headers: {
-        'x-apisports-key': '460429b04bedb173f57157c21ea8fdd9' // Reemplaza esto con tu llave real
+        'x-apisports-key': process.env.FOOTBALL_API_KEY
       }
     });
 
