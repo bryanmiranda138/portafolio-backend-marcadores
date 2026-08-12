@@ -56,7 +56,13 @@ async function actualizarYTransmitirPartidos() {
         minuto: `${fixture.fixture.status.elapsed}'`,
         anotadores: anotadores // 👈 Enviamos la lista de goleadores
       };
-    });
+    }); // <-- Aquí termina el mapeo de los partidos
+
+    // 👇 ESTAS DOS LÍNEAS SON LAS QUE TE FALTABAN 👇
+    // 3. Emitir el evento a todos los clientes conectados
+    io.emit('marcadores_actualizados', partidos);
+    console.log(`📡 Broadcast enviado: ${partidos.length} partidos actualizados.`);
+
   } catch (error) {
     console.error('❌ Error al obtener los partidos reales:', error.message);
   }
