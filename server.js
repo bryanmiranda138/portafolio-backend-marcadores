@@ -17,46 +17,40 @@ const io = new Server(server, {
   }
 });
 
-// Frecuencia de actualización: 1 minuto (60,000 ms)
-const INTERVALO_CONSULTA = 1 * 60 * 1000;
+// Frecuencia de actualización: 3 minuto (60,000 ms)
+const INTERVALO_CONSULTA = 3 * 60 * 1000;
 
-// Función para obtener y transmitir los datos
+// Función para obtener y transmitir los datos reales
 async function actualizarYTransmitirPartidos() {
   try {
-    console.log('🔄 Actualizando información de partidos...');
+    console.log('🔄 Consultando API-Football para partidos en vivo...');
 
-    /* // EJEMPLO CON API-FOOTBALL REAL:
+    // 1. Llamada a la API Real
     const response = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
-      headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
-    });
-    const partidos = response.data.response;
-    */
-
-    // SIMULACIÓN (Ideal para probar el flujo sin consumir cuotas de API):
-    const partidos = [
-      {
-        id: 101,
-        local: 'Real Madrid',
-        visitante: 'Barcelona',
-        golesLocal: Math.floor(Math.random() * 4),
-        golesVisitante: Math.floor(Math.random() * 3),
-        minuto: `${Math.floor(Math.random() * 45) + 45}'`
-      },
-      {
-        id: 102,
-        local: 'Arsenal',
-        visitante: 'Chelsea',
-        golesLocal: Math.floor(Math.random() * 2),
-        golesVisitante: Math.floor(Math.random() * 2),
-        minuto: `${Math.floor(Math.random() * 30) + 1}'`
+      headers: {
+        'x-apisports-key': '460429b04bedb173f57157c21ea8fdd9' // Reemplaza esto con tu llave real
       }
-    ];
+    });
 
-    // Emitir el evento a TODOS los clientes conectados simultáneamente
+    const partidosCrudos = response.data.response;
+
+    // 2. Traducción de datos (Mapeo)
+    // Convertimos la respuesta compleja de la API al formato sencillo que espera React
+    const partidos = partidosCrudos.map(fixture => ({
+      id: fixture.fixture.id,
+      local: fixture.teams.home.name,
+      visitante: fixture.teams.away.name,
+      golesLocal: fixture.goals.home ?? 0,
+      golesVisitante: fixture.goals.away ?? 0,
+      minuto: `${fixture.fixture.status.elapsed}'`
+    }));
+
+    // 3. Emitir el evento a los clientes
     io.emit('marcadores_actualizados', partidos);
-    console.log('📡 Broadcast enviado a los clientes.');
+    console.log(`📡 Broadcast enviado: ${partidos.length} partidos en vivo actualizados.`);
+
   } catch (error) {
-    console.error('Error al actualizar partidos:', error.message);
+    console.error('❌ Error al obtener los partidos reales:', error.message);
   }
 }
 
