@@ -48,7 +48,7 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   const proximosFiltrados = cacheProximosPartidos.filter(p => !idsJugandoAhora.has(p.equipoTrackedId));
   const listaBruta = [...partidosEnVivoCache, ...proximosFiltrados];
   
-  // 🛡️ MAGIA SENIOR: Deduplicar partidos que tengan el mismo ID (Ej. Barça vs Madrid)
+  // Deduplicación para evitar el error de IDs duplicados (Ej. Clásico Español)
   const mapaDeduplicacion = new Map();
   listaBruta.forEach(partido => {
     if (!mapaDeduplicacion.has(partido.id)) {
@@ -66,51 +66,43 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
-// 1️⃣ Carga progresiva e inteligente de próximos partidos
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
-  console.log('⏳ Iniciando carga de próximos partidos...');
-
   let listaTemporal = [];
-  // 💡 EL SECRETO DE LA DOCS: Obtenemos el año actual (ej. 2024, 2025, 2026)
-  const anioActual = new Date().getFullYear(); 
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
-      // 👈 Aplicamos la regla de la API v3: team + season + next
-      const urlAPI = `https://v3.football.api-sports.io/fixtures?team=${equipo.id}&season=${anioActual}&next=1`;
+      // 🛠️ SOLUCIÓN 1: Quitamos 'season' porque choca con 'next'
+      const urlAPI = `https://v3.football.api-sports.io/fixtures?team=${equipo.id}&next=1`;
       
       const response = await axios.get(urlAPI, {
         headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
       });
 
+      // Blindaje profundo contra errores de la API
       const errors = response.data?.errors;
-      
       if (errors && Object.keys(errors).length > 0) {
-        if (errors.requests) {
-          console.error('🚫 Se agotó el límite diario de la API.');
+        console.error(`⚠️ API rechazó a ${equipo.nombre}. Motivo exacto:`, JSON.stringify(errors));
+        
+        if (errors.requests || errors.token) {
+          console.error('🚫 Límite diario o token inválido. Deteniendo carga.');
           if (listaTemporal.length === 0) cacheProximosPartidos = [...DATOS_RESPALDO];
           break;
         }
         if (errors.rateLimit) {
-          console.warn(`⏳ Límite de velocidad con ${equipo.nombre}. Pausando 12s...`);
           await esperar(12000);
           continue;
         }
-        // Si hay error de "season" u otro de validación, lo imprimirá aquí
-        console.error(`⚠️ Error de validación con ${equipo.nombre}:`, errors);
       }
 
       const fixture = response.data.response?.[0];
       if (fixture) {
         const fecha = new Date(fixture.fixture.date);
         
-        // 🇸🇻 Configuramos la zona horaria exacta para El Salvador
+        // 🛠️ SOLUCIÓN 2: Formato estándar sin declarar la Zona Horaria para evitar caídas de servidor
         const fechaFormateada = fecha.toLocaleDateString('es-ES', { 
-          timeZone: 'America/El_Salvador',
-          day: '2-digit', month: 'short', 
-          hour: '2-digit', minute: '2-digit' 
+          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
         });
         
         listaTemporal.push({
@@ -130,20 +122,18 @@ async function cargarProximosPartidosProgresivamente() {
         emitirDatosAlFrontend();
       }
     } catch (err) {
-      console.error(`❌ Error HTTP consultando ${equipo.nombre}:`, err.message);
+      console.error(`❌ Error de conexión consultando ${equipo.nombre}:`, err.message);
     }
-    
     await esperar(9000); 
   }
 
   if (cacheProximosPartidos.length === 0) {
-    console.log('🛡️ Usando datos de respaldo temporal (No se hallaron partidos).');
+    console.log('🛡️ Usando datos de respaldo temporal (No hay partidos o API falló).');
     cacheProximosPartidos = [...DATOS_RESPALDO];
     emitirDatosAlFrontend();
   } else {
-    console.log(`✅ Carga completada. Se obtuvieron ${cacheProximosPartidos.length} próximos partidos reales.`);
+    console.log(`✅ Carga completada. ${cacheProximosPartidos.length} partidos encontrados.`);
   }
-
   cargandoProximos = false;
 }
 
@@ -168,7 +158,6 @@ async function buscarPartidosEnVivo() {
         if (fixture.fixture.status.short === 'HT') tiempoAmostrar = 'Medio Tiempo';
         if (fixture.fixture.status.extra) tiempoAmostrar = `${fixture.fixture.status.elapsed} + ${fixture.fixture.status.extra}'`;
 
-        // 🛡️ RECREAMOS LA LÓGICA DE GOLES QUE HABÍAS BORRADO
         const anotadoresData = (fixture.events || [])
           .filter(event => event.type === 'Goal')
           .map(event => ({
@@ -189,7 +178,7 @@ async function buscarPartidosEnVivo() {
           minuto: tiempoAmostrar,
           estado: fixture.fixture.status.short,
           esEnVivo: true,
-          anotadores: anotadoresData // Ahora los goles sí viajan al frontend
+          anotadores: anotadoresData
         });
       }
     });
