@@ -10,91 +10,163 @@ app.use(cors());
 
 const server = http.createServer(app);
 
-// Configuración de Socket.io con CORS permitido para producción
 const io = new Server(server, {
   cors: {
-    origin: '*', // En producción puedes cambiarlo por la URL de tu frontend (ej. Vercel)
+    origin: '*',
     methods: ['GET', 'POST']
   }
 });
 
-// Frecuencia de actualización: 3 minuto (60,000 ms)
-const INTERVALO_CONSULTA = 3 * 60 * 1000;
+// 📌 LISTADO DE EQUIPOS FAVORITOS CON SUS IDs OFICIALES
+const EQUIPOS_FAVORITOS = [
+  { id: 529, nombre: 'FC Barcelona' },
+  { id: 541, nombre: 'Real Madrid' },
+  { id: 451, nombre: 'Boca Juniors' },
+  { id: 435, nombre: 'River Plate' },
+  { id: 40,  nombre: 'Liverpool' },
+  { id: 50,  nombre: 'Manchester City' },
+  { id: 2307, nombre: 'C.D. Águila' },
+  { id: 8984, nombre: 'Inter Miami' },
+  { id: 26,  nombre: 'Argentina' },
+  { id: 6,   nombre: 'Brasil' },
+  { id: 10,  nombre: 'Inglaterra' },
+  { id: 2,   nombre: 'Francia' },
+  { id: 9,   nombre: 'España' }
+];
 
-// Función para obtener y transmitir los datos reales
+// Frecuencia de consulta en vivo: 10 minutos (para cuidar cuota diaria)
+const INTERVALO_CONSULTA = 10 * 60 * 1000;
+
+// Caché en memoria para próximos partidos (Se renueva cada 12 horas)
+let cacheProximosPartidos = [];
+let ultimaConsultaProximos = 0;
+const DOCE_HORAS = 12 * 60 * 60 * 1000;
+
+// Función para obtener el próximo partido de cada equipo favorito
+async function obtenerProximosPartidos() {
+  if (Date.now() - ultimaConsultaProximos < DOCE_HORAS && cacheProximosPartidos.length > 0) {
+    return cacheProximosPartidos;
+  }
+
+  console.log('📅 Consultando API para próximos partidos programados...');
+  const resultados = [];
+
+  for (const equipo of EQUIPOS_FAVORITOS) {
+    try {
+      const response = await axios.get(`https://v3.football.api-sports.io/fixtures?team=${equipo.id}&next=1`, {
+        headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
+      });
+
+      const fixture = response.data.response[0];
+      if (fixture) {
+        const fecha = new Date(fixture.fixture.date);
+        const fechaFormateada = fecha.toLocaleDateString('es-ES', {
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        resultados.push({
+          id: fixture.fixture.id,
+          equipoTrackedId: equipo.id,
+          local: fixture.teams.home.name,
+          visitante: fixture.teams.away.name,
+          golesLocal: fixture.goals.home ?? 0,
+          golesVisitante: fixture.goals.away ?? 0,
+          minuto: fechaFormateada,
+          estado: 'PROXIMO',
+          esEnVivo: false,
+          anotadores: []
+        });
+      }
+    } catch (err) {
+      console.error(`❌ Error al obtener próximo partido de ${equipo.nombre}:`, err.message);
+    }
+  }
+
+  cacheProximosPartidos = resultados;
+  ultimaConsultaProximos = Date.now();
+  return resultados;
+}
+
+// Función principal de actualización y emisión
 async function actualizarYTransmitirPartidos() {
   try {
-    console.log('🔄 Consultando API-Football para partidos en vivo...');
+    console.log('🔄 Consultando partidos en vivo...');
 
-    // 1. Llamada a la API Real
-    const response = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
-      headers: {
-        'x-apisports-key': process.env.FOOTBALL_API_KEY
+    // 1. Petición a partidos en vivo globales
+    const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
+      headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
+    });
+
+    const partidosLiveCrudos = responseLive.data.response || [];
+    const targetIds = EQUIPOS_FAVORITOS.map(e => e.id);
+
+    const partidosEnVivoMapeados = [];
+    const equiposConPartidoEnVivo = new Set();
+
+    // 2. Filtrar si alguno de nuestros equipos favoritos está jugando en vivo
+    partidosLiveCrudos.forEach(fixture => {
+      const homeId = fixture.teams.home.id;
+      const awayId = fixture.teams.away.id;
+
+      if (targetIds.includes(homeId) || targetIds.includes(awayId)) {
+        if (targetIds.includes(homeId)) equiposConPartidoEnVivo.add(homeId);
+        if (targetIds.includes(awayId)) equiposConPartidoEnVivo.add(awayId);
+
+        const statusCorto = fixture.fixture.status.short;
+        const elapsed = fixture.fixture.status.elapsed;
+        const extra = fixture.fixture.status.extra;
+
+        let tiempoAmostrar = '';
+        if (statusCorto === 'HT') tiempoAmostrar = 'Medio Tiempo';
+        else if (['FT', 'AET', 'PEN'].includes(statusCorto)) tiempoAmostrar = 'Finalizado';
+        else if (extra) tiempoAmostrar = `${elapsed} + ${extra}'`;
+        else tiempoAmostrar = `${elapsed}'`;
+
+        const anotadores = (fixture.events || [])
+          .filter(event => event.type === 'Goal')
+          .map(event => ({
+            equipo: event.team.name,
+            jugador: event.player.name || 'Desconocido',
+            minuto: event.time.elapsed,
+            tipo: event.detail
+          }));
+
+        partidosEnVivoMapeados.push({
+          id: fixture.fixture.id,
+          local: fixture.teams.home.name,
+          visitante: fixture.teams.away.name,
+          golesLocal: fixture.goals.home ?? 0,
+          golesVisitante: fixture.goals.away ?? 0,
+          minuto: tiempoAmostrar,
+          estado: statusCorto,
+          esEnVivo: true,
+          anotadores
+        });
       }
     });
 
-    const partidosCrudos = response.data.response;
+    // 3. Obtener próximos partidos para los equipos que NO están jugando en vivo
+    const proximos = await obtenerProximosPartidos();
+    const proximosFiltrados = proximos.filter(p => !equiposConPartidoEnVivo.has(p.equipoTrackedId));
 
-    // 2. Traducción de datos (Mapeo)
-    const partidos = partidosCrudos.map(fixture => {
-      // Extraemos únicamente los eventos de tipo "Goal"
-      const anotadores = (fixture.events || [])
-        .filter(event => event.type === 'Goal')
-        .map(event => ({
-          equipo: event.team.name,          // Nombre del equipo
-          jugador: event.player.name || 'Desconocido', // Nombre del goleador
-          minuto: event.time.elapsed,       // Minuto del gol
-          tipo: event.detail                // 'Normal Goal', 'Penalty', 'Own Goal', etc.
-        }));
-      // --- NUEVA LÓGICA DE TIEMPO Y ESTADO ---
-      const statusCorto = fixture.fixture.status.short;
-      const elapsed = fixture.fixture.status.elapsed;
-      const extra = fixture.fixture.status.extra;
+    // Combinar lista final: En vivo primero, luego próximos
+    const listaFinal = [...partidosEnVivoMapeados, ...proximosFiltrados];
 
-      let tiempoAmostrar = '';
-
-      if (statusCorto === 'HT') {
-        tiempoAmostrar = 'Medio Tiempo';
-      } else if (statusCorto === 'FT' || statusShort === 'AET' || statusShort === 'PEN') {
-        tiempoAmostrar = 'Finalizado';
-      } else if (extra) {
-        // Si hay tiempo agregado, mostramos "90 + 4'" por ejemplo
-        tiempoAmostrar = `${elapsed} + ${extra}'`;
-      } else {
-        // Minuto normal
-        tiempoAmostrar = `${elapsed}'`;
-      }
-
-      return {
-        id: fixture.fixture.id,
-        local: fixture.teams.home.name,
-        visitante: fixture.teams.away.name,
-        golesLocal: fixture.goals.home ?? 0,
-        golesVisitante: fixture.goals.away ?? 0,
-        minuto: `${fixture.fixture.status.elapsed}'`,
-        estado: statusCorto, //
-        anotadores: anotadores // 👈 Enviamos la lista de goleadores
-      };
-    }); // <-- Aquí termina el mapeo de los partidos
-
-    // 👇 ESTAS DOS LÍNEAS SON LAS QUE TE FALTABAN 👇
-    // 3. Emitir el evento a todos los clientes conectados
-    io.emit('marcadores_actualizados', partidos);
-    console.log(`📡 Broadcast enviado: ${partidos.length} partidos actualizados.`);
+    io.emit('marcadores_actualizados', listaFinal);
+    console.log(`📡 Transmitidos ${partidosEnVivoMapeados.length} partidos en vivo y ${proximosFiltrados.length} próximos.`);
 
   } catch (error) {
-    console.error('❌ Error al obtener los partidos reales:', error.message);
+    console.error('❌ Error en el proceso de consulta:', error.message);
   }
 }
 
-// Ejecutar consulta periódica en el servidor
 setInterval(actualizarYTransmitirPartidos, INTERVALO_CONSULTA);
 
-// Gestión de conexiones de clientes
 io.on('connection', (socket) => {
   console.log(`⚡ Cliente conectado: ${socket.id}`);
-
-  // Enviar el estado actual inmediatamente al nuevo usuario que entra
   actualizarYTransmitirPartidos();
 
   socket.on('disconnect', () => {
@@ -102,8 +174,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Render asigna dinámicamente el puerto mediante process.env.PORT
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
