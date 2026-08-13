@@ -11,17 +11,24 @@ const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo funcionando correctamente.'));
+app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 📌 TUS EQUIPOS FAVORITOS
+// 📌 DICCIONARIO DE IDs (API-Football para En Vivo | TheSportsDB para Próximos)
 const EQUIPOS_FAVORITOS = [
-  { id: 529, nombre: 'FC Barcelona' }, { id: 541, nombre: 'Real Madrid' },
-  { id: 451, nombre: 'Boca Juniors' }, { id: 435, nombre: 'River Plate' },
-  { id: 40,  nombre: 'Liverpool' }, { id: 50,  nombre: 'Manchester City' },
-  { id: 2307, nombre: 'C.D. Águila' }, { id: 8984, nombre: 'Inter Miami' },
-  { id: 26,  nombre: 'Argentina' }, { id: 6,   nombre: 'Brasil' },
-  { id: 10,  nombre: 'Inglaterra' }, { id: 2,   nombre: 'Francia' }, { id: 9,   nombre: 'España' }
+  { nombre: 'FC Barcelona',   idFootball: 529,  idSportsDB: 133739 },
+  { nombre: 'Real Madrid',    idFootball: 541,  idSportsDB: 133604 },
+  { nombre: 'Boca Juniors',   idFootball: 451,  idSportsDB: 135205 },
+  { nombre: 'River Plate',    idFootball: 435,  idSportsDB: 135211 },
+  { nombre: 'Liverpool',      idFootball: 40,   idSportsDB: 133602 },
+  { nombre: 'Manchester City',idFootball: 50,   idSportsDB: 133613 },
+  { nombre: 'C.D. Águila',    idFootball: 2307, idSportsDB: 140411 }, 
+  { nombre: 'Inter Miami',    idFootball: 8984, idSportsDB: 140989 },
+  { nombre: 'Argentina',      idFootball: 26,   idSportsDB: 135275 },
+  { nombre: 'Brasil',         idFootball: 6,    idSportsDB: 135276 },
+  { nombre: 'Inglaterra',     idFootball: 10,   idSportsDB: 133702 },
+  { nombre: 'Francia',        idFootball: 2,    idSportsDB: 133714 },
+  { nombre: 'España',         idFootball: 9,    idSportsDB: 133738 }
 ];
 
 const INTERVALO_CONSULTA = 10 * 60 * 1000; 
@@ -33,9 +40,8 @@ let partidosEnVivoCache = [];
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const DATOS_RESPALDO = [
-  { id: 991, equipoTrackedId: 541, local: 'Real Madrid', visitante: 'AC Milan', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
-  { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', visitante: 'Arsenal', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
-  { id: 993, equipoTrackedId: 8984, local: 'Inter Miami', visitante: 'LA Galaxy', golesLocal: 0, golesVisitante: 0, minuto: 'Mañana, 18:30', estado: 'PROXIMO', esEnVivo: false, anotadores: [] }
+  { id: 991, equipoTrackedId: 541, local: 'Real Madrid', visitante: 'AC Milan', golesLocal: 0, golesVisitante: 0, minuto: 'Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
+  { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', visitante: 'Arsenal', golesLocal: 0, golesVisitante: 0, minuto: 'Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] }
 ];
 
 function emitirDatosAlFrontend(socketEspecifico = null) {
@@ -48,7 +54,6 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   const proximosFiltrados = cacheProximosPartidos.filter(p => !idsJugandoAhora.has(p.equipoTrackedId));
   const listaBruta = [...partidosEnVivoCache, ...proximosFiltrados];
   
-  // Deduplicación para evitar el error de IDs duplicados (Ej. Clásico Español)
   const mapaDeduplicacion = new Map();
   listaBruta.forEach(partido => {
     if (!mapaDeduplicacion.has(partido.id)) {
@@ -66,68 +71,39 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
-// 1️⃣ Carga progresiva e inteligente de próximos partidos (MODO FREE TIER BYPASS)
+// 1️⃣ API #1: TheSportsDB para Próximos Partidos (100% Gratis, sin API Key requerida)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
-  console.log('⏳ Iniciando carga de próximos partidos (Bypass de cuenta gratuita)...');
+  console.log('⏳ Iniciando carga de próximos partidos desde TheSportsDB...');
 
   let listaTemporal = [];
-  const anioActual = new Date().getFullYear(); 
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
-      // 💡 TRUCO SENIOR: Pedimos TODA la temporada en lugar del parámetro 'next' bloqueado
-      const urlAPI = `https://v3.football.api-sports.io/fixtures?team=${equipo.id}&season=${anioActual}`;
-      
-      const response = await axios.get(urlAPI, {
-        headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
-      });
+      // Usamos el endpoint público v1/json/3 de TheSportsDB
+      const urlSportsDB = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipo.idSportsDB}`;
+      const response = await axios.get(urlSportsDB);
 
-      const errors = response.data?.errors;
-      if (errors && Object.keys(errors).length > 0) {
-        console.error(`⚠️ API rechazó a ${equipo.nombre}. Motivo exacto:`, JSON.stringify(errors));
+      // TheSportsDB devuelve un arreglo 'events', o null si no hay partidos programados pronto
+      const eventos = response.data?.events;
+
+      if (eventos && eventos.length > 0) {
+        const fixture = eventos[0]; // Tomamos el más cercano
         
-        if (errors.requests || errors.token) {
-          if (listaTemporal.length === 0) cacheProximosPartidos = [...DATOS_RESPALDO];
-          break;
-        }
-        if (errors.rateLimit) {
-          await esperar(12000);
-          continue;
-        }
-      }
-
-      // La API nos devuelve todos los partidos del año (ej. 38 o 50 partidos)
-      const todosLosPartidos = response.data.response || [];
-      const ahora = new Date().getTime();
-
-      // 1. Filtramos para quedarnos SOLO con los partidos que están en el futuro
-      const partidosFuturos = todosLosPartidos.filter(f => {
-        const fechaPartido = new Date(f.fixture.date).getTime();
-        return fechaPartido > ahora;
-      });
-
-      // 2. Ordenamos del más cercano al más lejano
-      partidosFuturos.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
-
-      // 3. Tomamos el primer partido de la lista (¡Acabamos de recrear el next=1!)
-      const fixture = partidosFuturos[0]; 
-
-      if (fixture) {
-        const fecha = new Date(fixture.fixture.date);
-        
-        const fechaFormateada = fecha.toLocaleDateString('es-ES', { 
+        // Convertimos la fecha de TheSportsDB (viene en UTC) a formato amigable
+        const fechaPartido = new Date(fixture.strTimestamp);
+        const fechaFormateada = fechaPartido.toLocaleDateString('es-ES', { 
           day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
         });
         
         listaTemporal.push({
-          id: fixture.fixture.id,
-          equipoTrackedId: equipo.id,
-          local: fixture.teams.home.name,
-          visitante: fixture.teams.away.name,
-          golesLocal: fixture.goals.home ?? 0,
-          golesVisitante: fixture.goals.away ?? 0,
+          id: fixture.idEvent, // ID único del evento en TheSportsDB
+          equipoTrackedId: equipo.idFootball, // Guardamos el ID de Football para que el filtro en vivo funcione
+          local: fixture.strHomeTeam,
+          visitante: fixture.strAwayTeam,
+          golesLocal: 0,
+          golesVisitante: 0,
           minuto: fechaFormateada,
           estado: 'PROXIMO',
           esEnVivo: false,
@@ -138,23 +114,24 @@ async function cargarProximosPartidosProgresivamente() {
         emitirDatosAlFrontend();
       }
     } catch (err) {
-      console.error(`❌ Error de conexión consultando ${equipo.nombre}:`, err.message);
+      console.error(`❌ Error consultando TheSportsDB para ${equipo.nombre}:`, err.message);
     }
     
-    // Pausa de seguridad
-    await esperar(9000); 
+    // TheSportsDB es muy generosa, pero esperamos 1 segundo entre peticiones por educación
+    await esperar(1000); 
   }
 
   if (cacheProximosPartidos.length === 0) {
-    console.log('🛡️ Usando datos de respaldo temporal (No hay partidos o API falló).');
+    console.log('🛡️ Usando datos de respaldo (TheSportsDB no devolvió partidos).');
     cacheProximosPartidos = [...DATOS_RESPALDO];
     emitirDatosAlFrontend();
   } else {
-    console.log(`✅ Carga completada. ${cacheProximosPartidos.length} partidos encontrados.`);
+    console.log(`✅ Carga completada desde TheSportsDB: ${cacheProximosPartidos.length} partidos encontrados.`);
   }
   cargandoProximos = false;
 }
 
+// 2️⃣ API #2: API-Football para Partidos En Vivo (Usando tu llave)
 async function buscarPartidosEnVivo() {
   try {
     const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
@@ -163,7 +140,7 @@ async function buscarPartidosEnVivo() {
 
     if (responseLive.data?.errors && Object.keys(responseLive.data.errors).length > 0) return;
 
-    const targetIds = EQUIPOS_FAVORITOS.map(e => e.id);
+    const targetIds = EQUIPOS_FAVORITOS.map(e => e.idFootball); // Usamos los IDs de API-Football
     const partidosLiveCrudos = responseLive.data.response || [];
     partidosEnVivoCache = []; 
 
@@ -203,11 +180,11 @@ async function buscarPartidosEnVivo() {
 
     emitirDatosAlFrontend();
   } catch (error) {
-    console.error('❌ Error buscando en vivo:', error.message);
+    console.error('❌ Error buscando en vivo en API-Football:', error.message);
   }
 }
 
-setTimeout(cargarProximosPartidosProgresivamente, 3000); 
+setTimeout(cargarProximosPartidosProgresivamente, 2000); 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
 
 io.on('connection', (socket) => {
@@ -215,4 +192,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Servidor Multi-API corriendo en puerto ${PORT}`));
