@@ -174,5 +174,17 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log(`❌ Desconectado: ${socket.id}`));
 });
 
+// 🩺 ENDPOINT DE DIAGNÓSTICO (DEBUG)
+// Entra a esta URL en tu navegador para ver qué está pensando el servidor
+app.get('/debug', (req, res) => {
+  res.json({
+    mensaje: "Estado actual de la memoria del servidor",
+    estaCargandoLaCola: cargandoProximos,
+    partidosEnVivoEncontrados: partidosEnVivoCache.length,
+    proximosPartidosEncontrados: cacheProximosPartidos.length,
+    datosProximos: cacheProximosPartidos
+  });
+});
+
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));
