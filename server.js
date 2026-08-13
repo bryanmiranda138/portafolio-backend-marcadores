@@ -11,20 +11,8 @@ const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-// Ruta de inicio para evitar el mensaje "Cannot GET /"
-app.get('/', (req, res) => {
-  res.send('⚽ Servidor de Marcadores en vivo funcionando correctamente.');
-});
-
-// Endpoint de diagnóstico
-app.get('/debug', (req, res) => {
-  res.json({
-    proximosCargados: cacheProximosPartidos.length,
-    enVivoCargados: partidosEnVivoCache.length,
-    cargandoActualmente: cargandoProximos,
-    datos: cacheProximosPartidos
-  });
-});
+app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo funcionando correctamente.'));
+app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
 // 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
@@ -44,7 +32,6 @@ let partidosEnVivoCache = [];
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 🛡️ PLAN B: Datos de respaldo
 const DATOS_RESPALDO = [
   { id: 991, equipoTrackedId: 541, local: 'Real Madrid', visitante: 'AC Milan', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
   { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', visitante: 'Arsenal', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
@@ -59,9 +46,17 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   });
 
   const proximosFiltrados = cacheProximosPartidos.filter(p => !idsJugandoAhora.has(p.equipoTrackedId));
-  const listaFinal = [...partidosEnVivoCache, ...proximosFiltrados];
+  const listaBruta = [...partidosEnVivoCache, ...proximosFiltrados];
   
-  // Si aún no tenemos ningún partido real cargado, mostramos temporalmente los de respaldo
+  // 🛡️ MAGIA SENIOR: Deduplicar partidos que tengan el mismo ID (Ej. Barça vs Madrid)
+  const mapaDeduplicacion = new Map();
+  listaBruta.forEach(partido => {
+    if (!mapaDeduplicacion.has(partido.id)) {
+      mapaDeduplicacion.set(partido.id, partido);
+    }
+  });
+  
+  let listaFinal = Array.from(mapaDeduplicacion.values());
   const datosAEnviar = listaFinal.length > 0 ? listaFinal : DATOS_RESPALDO;
 
   if (socketEspecifico) {
@@ -71,13 +66,9 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
-// 1️⃣ Carga progresiva e inteligente de próximos partidos
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
-  
   cargandoProximos = true;
-  console.log('⏳ Iniciando carga inteligente de próximos partidos...');
-
   let listaTemporal = [];
 
   for (const equipo of EQUIPOS_FAVORITOS) {
@@ -87,17 +78,11 @@ async function cargarProximosPartidosProgresivamente() {
       });
 
       const errors = response.data?.errors;
-
-      // Si se acaba la cuota diaria (Requests)
       if (errors && errors.requests) {
-        console.error('🚫 Se agotó el límite diario de la API.');
         if (listaTemporal.length === 0) cacheProximosPartidos = [...DATOS_RESPALDO];
         break;
       }
-
-      // Si tocamos el límite por minuto (Rate Limit), pausamos 12s y continuamos
       if (errors && errors.rateLimit) {
-        console.warn(`⏳ Límite de velocidad por minuto alcanzado con ${equipo.nombre}. Pausando 12s...`);
         await esperar(12000);
         continue;
       }
@@ -105,9 +90,7 @@ async function cargarProximosPartidosProgresivamente() {
       const fixture = response.data.response?.[0];
       if (fixture) {
         const fecha = new Date(fixture.fixture.date);
-        const fechaFormateada = fecha.toLocaleDateString('es-ES', { 
-          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
-        });
+        const fechaFormateada = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
         
         listaTemporal.push({
           id: fixture.fixture.id,
@@ -119,33 +102,25 @@ async function cargarProximosPartidosProgresivamente() {
           minuto: fechaFormateada,
           estado: 'PROXIMO',
           esEnVivo: false,
-          anotadores: []
+          anotadores: [] // Los próximos partidos nunca tienen goles, esto está bien
         });
 
-        // Actualizamos el caché y enviamos al frontend de inmediato
         cacheProximosPartidos = [...listaTemporal];
         emitirDatosAlFrontend();
       }
     } catch (err) {
       console.error(`❌ Error HTTP consultando ${equipo.nombre}:`, err.message);
     }
-    
-    // Pausa de 9 segundos entre cada petición (Cuidando las 10 req/minuto)
     await esperar(9000); 
   }
 
   if (cacheProximosPartidos.length === 0) {
-    console.log('🛡️ Usando datos de respaldo temporal.');
     cacheProximosPartidos = [...DATOS_RESPALDO];
     emitirDatosAlFrontend();
-  } else {
-    console.log(`✅ Carga completada. Se obtuvieron ${cacheProximosPartidos.length} próximos partidos reales.`);
   }
-
   cargandoProximos = false;
 }
 
-// 2️⃣ Consultar partidos en vivo
 async function buscarPartidosEnVivo() {
   try {
     const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
@@ -167,6 +142,16 @@ async function buscarPartidosEnVivo() {
         if (fixture.fixture.status.short === 'HT') tiempoAmostrar = 'Medio Tiempo';
         if (fixture.fixture.status.extra) tiempoAmostrar = `${fixture.fixture.status.elapsed} + ${fixture.fixture.status.extra}'`;
 
+        // 🛡️ RECREAMOS LA LÓGICA DE GOLES QUE HABÍAS BORRADO
+        const anotadoresData = (fixture.events || [])
+          .filter(event => event.type === 'Goal')
+          .map(event => ({
+            equipo: event.team.name,
+            jugador: event.player.name || 'Desconocido',
+            minuto: event.time.elapsed,
+            tipo: event.detail
+          }));
+
         partidosEnVivoCache.push({
           id: fixture.fixture.id,
           equipoIdFiltro1: homeId,
@@ -178,7 +163,7 @@ async function buscarPartidosEnVivo() {
           minuto: tiempoAmostrar,
           estado: fixture.fixture.status.short,
           esEnVivo: true,
-          anotadores: [] 
+          anotadores: anotadoresData // Ahora los goles sí viajan al frontend
         });
       }
     });
@@ -189,14 +174,11 @@ async function buscarPartidosEnVivo() {
   }
 }
 
-// Arranque
 setTimeout(cargarProximosPartidosProgresivamente, 3000); 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
 
 io.on('connection', (socket) => {
-  console.log(`⚡ Cliente conectado: ${socket.id}`);
   emitirDatosAlFrontend(socket);
-  socket.on('disconnect', () => console.log(`❌ Desconectado: ${socket.id}`));
 });
 
 const PORT = process.env.PORT || 4000;
