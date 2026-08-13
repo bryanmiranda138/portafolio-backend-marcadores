@@ -7,6 +7,10 @@ const axios = require('axios');
 
 const app = express();
 app.use(cors());
+// Ruta principal para evitar el error "Cannot GET /"
+app.get('/', (req, res) => {
+  res.send('⚽ El Servidor de Marcadores (API) está en línea y funcionando perfectamente.');
+});
 const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
@@ -70,17 +74,21 @@ async function cargarProximosPartidosProgresivamente() {
         headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
       });
 
-      // 🚨 DETECCIÓN DE ERRORES OCULTOS DE LA API
-      if (response.data.errors && Object.keys(response.data.errors).length > 0) {
+      // 🚨 DETECCIÓN DE ERRORES BLINDADA
+      // Verificamos si hay errores, ya sea que la API los envíe como Arreglo [] o como Objeto {}
+      const apiEnvioErrores = response.data.errors && (
+        (Array.isArray(response.data.errors) && response.data.errors.length > 0) || 
+        (!Array.isArray(response.data.errors) && Object.keys(response.data.errors).length > 0)
+      );
+
+      if (apiEnvioErrores) {
         console.error(`⚠️ API rechazó la petición de ${equipo.nombre}:`, response.data.errors);
+        console.log('🛡️ ACTIVANDO PLAN B: Inyectando partidos de respaldo para proteger el portafolio.');
         
-        // Si agotamos límite o falló el token, metemos el PLAN B y salimos
-        if (response.data.errors.requests || response.data.errors.rateLimit || response.data.errors.token) {
-           console.log('🛡️ ACTIVANDO PLAN B: Inyectando partidos de respaldo para proteger el portafolio.');
-           cacheProximosPartidos = [...DATOS_RESPALDO];
-           emitirDatosAlFrontend();
-           break; 
-        }
+        // Activamos los datos de prueba y rompemos el ciclo para no seguir gastando
+        cacheProximosPartidos = [...DATOS_RESPALDO];
+        emitirDatosAlFrontend();
+        break; 
       }
 
       const fixture = response.data.response?.[0];
@@ -119,7 +127,14 @@ async function buscarPartidosEnVivo() {
       headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
     });
 
-    if (responseLive.data.errors && Object.keys(responseLive.data.errors).length > 0) return; // Si hay error, lo ignoramos para no romper el caché
+    // 🚨 DETECCIÓN DE ERRORES BLINDADA
+    // Verificamos si hay errores, ya sea que la API los envíe como Arreglo [] o como Objeto {}
+    const apiEnvioErrores = responseLive.data.errors && (
+      (Array.isArray(responseLive.data.errors) && responseLive.data.errors.length > 0) || 
+      (!Array.isArray(responseLive.data.errors) && Object.keys(responseLive.data.errors).length > 0)
+    );
+
+    if (apiEnvioErrores) return; // Si hay error, lo ignoramos para no romper el caché
 
     const targetIds = EQUIPOS_FAVORITOS.map(e => e.id);
     const partidosLiveCrudos = responseLive.data.response || [];
