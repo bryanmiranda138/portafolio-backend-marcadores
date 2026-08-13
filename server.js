@@ -66,27 +66,29 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
+// 1️⃣ Carga progresiva e inteligente de próximos partidos (MODO FREE TIER BYPASS)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
+  console.log('⏳ Iniciando carga de próximos partidos (Bypass de cuenta gratuita)...');
+
   let listaTemporal = [];
+  const anioActual = new Date().getFullYear(); 
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
-      // 🛠️ SOLUCIÓN 1: Quitamos 'season' porque choca con 'next'
-      const urlAPI = `https://v3.football.api-sports.io/fixtures?team=${equipo.id}&next=1`;
+      // 💡 TRUCO SENIOR: Pedimos TODA la temporada en lugar del parámetro 'next' bloqueado
+      const urlAPI = `https://v3.football.api-sports.io/fixtures?team=${equipo.id}&season=${anioActual}`;
       
       const response = await axios.get(urlAPI, {
         headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
       });
 
-      // Blindaje profundo contra errores de la API
       const errors = response.data?.errors;
       if (errors && Object.keys(errors).length > 0) {
         console.error(`⚠️ API rechazó a ${equipo.nombre}. Motivo exacto:`, JSON.stringify(errors));
         
         if (errors.requests || errors.token) {
-          console.error('🚫 Límite diario o token inválido. Deteniendo carga.');
           if (listaTemporal.length === 0) cacheProximosPartidos = [...DATOS_RESPALDO];
           break;
         }
@@ -96,11 +98,25 @@ async function cargarProximosPartidosProgresivamente() {
         }
       }
 
-      const fixture = response.data.response?.[0];
+      // La API nos devuelve todos los partidos del año (ej. 38 o 50 partidos)
+      const todosLosPartidos = response.data.response || [];
+      const ahora = new Date().getTime();
+
+      // 1. Filtramos para quedarnos SOLO con los partidos que están en el futuro
+      const partidosFuturos = todosLosPartidos.filter(f => {
+        const fechaPartido = new Date(f.fixture.date).getTime();
+        return fechaPartido > ahora;
+      });
+
+      // 2. Ordenamos del más cercano al más lejano
+      partidosFuturos.sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+
+      // 3. Tomamos el primer partido de la lista (¡Acabamos de recrear el next=1!)
+      const fixture = partidosFuturos[0]; 
+
       if (fixture) {
         const fecha = new Date(fixture.fixture.date);
         
-        // 🛠️ SOLUCIÓN 2: Formato estándar sin declarar la Zona Horaria para evitar caídas de servidor
         const fechaFormateada = fecha.toLocaleDateString('es-ES', { 
           day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
         });
@@ -124,6 +140,8 @@ async function cargarProximosPartidosProgresivamente() {
     } catch (err) {
       console.error(`❌ Error de conexión consultando ${equipo.nombre}:`, err.message);
     }
+    
+    // Pausa de seguridad
     await esperar(9000); 
   }
 
