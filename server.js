@@ -71,7 +71,7 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
-// 1️⃣ API #1: TheSportsDB para Próximos Partidos (100% Gratis, sin API Key requerida)
+// 1️⃣ API #1: TheSportsDB para Próximos Partidos
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -81,25 +81,23 @@ async function cargarProximosPartidosProgresivamente() {
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
-      // Usamos el endpoint público v1/json/3 de TheSportsDB
       const urlSportsDB = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipo.idSportsDB}`;
       const response = await axios.get(urlSportsDB);
 
-      // TheSportsDB devuelve un arreglo 'events', o null si no hay partidos programados pronto
       const eventos = response.data?.events;
 
       if (eventos && eventos.length > 0) {
-        const fixture = eventos[0]; // Tomamos el más cercano
+        // ✅ EL EQUIPO SÍ TIENE PARTIDO PROGRAMADO
+        const fixture = eventos[0]; 
         
-        // Convertimos la fecha de TheSportsDB (viene en UTC) a formato amigable
         const fechaPartido = new Date(fixture.strTimestamp);
         const fechaFormateada = fechaPartido.toLocaleDateString('es-ES', { 
           day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
         });
         
         listaTemporal.push({
-          id: fixture.idEvent, // ID único del evento en TheSportsDB
-          equipoTrackedId: equipo.idFootball, // Guardamos el ID de Football para que el filtro en vivo funcione
+          id: fixture.idEvent, 
+          equipoTrackedId: equipo.idFootball, 
           local: fixture.strHomeTeam,
           visitante: fixture.strAwayTeam,
           golesLocal: 0,
@@ -110,24 +108,35 @@ async function cargarProximosPartidosProgresivamente() {
           anotadores: [] 
         });
 
-        cacheProximosPartidos = [...listaTemporal];
-        emitirDatosAlFrontend();
+      } else {
+        // 🛡️ PLAN B POR EQUIPO: El equipo no tiene partido programado en la base de datos
+        // Creamos una tarjeta "Por confirmar" para que nunca falte en tu UI
+        listaTemporal.push({
+          id: `tbd-${equipo.idFootball}`, // ID inventado único
+          equipoTrackedId: equipo.idFootball, 
+          local: equipo.nombre, // Ponemos a tu equipo de local
+          visitante: 'Rival por definir', // Rival desconocido
+          golesLocal: 0,
+          golesVisitante: 0,
+          minuto: 'Fecha por confirmar', // Aviso claro
+          estado: 'PROXIMO',
+          esEnVivo: false,
+          anotadores: [] 
+        });
       }
+
+      // Actualizamos la memoria y enviamos a React
+      cacheProximosPartidos = [...listaTemporal];
+      emitirDatosAlFrontend();
+
     } catch (err) {
       console.error(`❌ Error consultando TheSportsDB para ${equipo.nombre}:`, err.message);
     }
     
-    // TheSportsDB es muy generosa, pero esperamos 1 segundo entre peticiones por educación
     await esperar(1000); 
   }
 
-  if (cacheProximosPartidos.length === 0) {
-    console.log('🛡️ Usando datos de respaldo (TheSportsDB no devolvió partidos).');
-    cacheProximosPartidos = [...DATOS_RESPALDO];
-    emitirDatosAlFrontend();
-  } else {
-    console.log(`✅ Carga completada desde TheSportsDB: ${cacheProximosPartidos.length} partidos encontrados.`);
-  }
+  console.log(`✅ Carga completada. ${cacheProximosPartidos.length} tarjetas generadas.`);
   cargandoProximos = false;
 }
 
