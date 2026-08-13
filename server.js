@@ -14,7 +14,7 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 📌 TUS EQUIPOS FAVORITOS (Con nombres adaptados para el buscador dinámico)
+// 📌 TUS EQUIPOS FAVORITOS (Nombres exactos para el buscador)
 const EQUIPOS_FAVORITOS = [
   { nombre: 'FC Barcelona',   idFootball: 529,  strSearch: 'Barcelona' },
   { nombre: 'Real Madrid',    idFootball: 541,  strSearch: 'Real Madrid' },
@@ -39,11 +39,6 @@ let partidosEnVivoCache = [];
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const DATOS_RESPALDO = [
-  { id: 991, equipoTrackedId: 541, local: 'Real Madrid', visitante: 'AC Milan', golesLocal: 0, golesVisitante: 0, minuto: 'Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
-  { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', visitante: 'Arsenal', golesLocal: 0, golesVisitante: 0, minuto: 'Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] }
-];
-
 function emitirDatosAlFrontend(socketEspecifico = null) {
   const idsJugandoAhora = new Set();
   partidosEnVivoCache.forEach(p => {
@@ -62,20 +57,19 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   });
   
   let listaFinal = Array.from(mapaDeduplicacion.values());
-  const datosAEnviar = listaFinal.length > 0 ? listaFinal : DATOS_RESPALDO;
 
   if (socketEspecifico) {
-    socketEspecifico.emit('marcadores_actualizados', datosAEnviar);
+    socketEspecifico.emit('marcadores_actualizados', listaFinal);
   } else {
-    io.emit('marcadores_actualizados', datosAEnviar);
+    io.emit('marcadores_actualizados', listaFinal);
   }
 }
 
-// 1️⃣ API #1: TheSportsDB (Buscador Automático + Time-Travel Hack)
+// 1️⃣ API #1: TheSportsDB (100% REAL - PRÓXIMOS PARTIDOS VERDADEROS)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
-  console.log('⏳ Iniciando buscador dinámico en TheSportsDB...');
+  console.log('⏳ Iniciando buscador dinámico de próximos partidos 100% REALES...');
 
   let listaTemporal = [];
 
@@ -85,32 +79,30 @@ async function cargarProximosPartidosProgresivamente() {
       const urlBusqueda = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(equipo.strSearch)}`;
       const resBusqueda = await axios.get(urlBusqueda);
       
-      // Filtramos para asegurar que sea de Fútbol y no de otro deporte
       const equipoEncontrado = resBusqueda.data?.teams?.find(t => t.strSport === 'Soccer');
       
       if (equipoEncontrado) {
-        // 2. Extraemos su ID real y buscamos su último partido (100% liberado y gratis)
-        const urlPartidos = `https://www.thesportsdb.com/api/v1/json/3/eventslast.php?id=${equipoEncontrado.idTeam}`;
+        // 2. Buscamos su PRÓXIMO partido oficial (eventsnext)
+        const urlPartidos = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipoEncontrado.idTeam}`;
         const resPartidos = await axios.get(urlPartidos);
         
-        const ultimoPartido = resPartidos.data?.results?.[0];
+        const proximosEventos = resPartidos.data?.events;
 
-        if (ultimoPartido) {
-          // 🚀 MAGIA DE PORTAFOLIO: Creamos una fecha falsa en el futuro (1 a 5 días adelante)
-          const diasAleatorios = Math.floor(Math.random() * 5) + 1;
-          const fechaFalsa = new Date();
-          fechaFalsa.setDate(fechaFalsa.getDate() + diasAleatorios);
+        if (proximosEventos && proximosEventos.length > 0) {
+          // ✅ EL EQUIPO TIENE PARTIDO PROGRAMADO
+          const fixtureFutu = proximosEventos[0];
           
-          const fechaFormateada = fechaFalsa.toLocaleDateString('es-ES', { 
+          const fechaReal = new Date(fixtureFutu.strTimestamp);
+          const fechaFormateada = fechaReal.toLocaleDateString('es-ES', { 
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
           });
           
           listaTemporal.push({
-            id: ultimoPartido.idEvent,
+            id: fixtureFutu.idEvent,
             equipoTrackedId: equipo.idFootball,
-            local: ultimoPartido.strHomeTeam,
-            visitante: ultimoPartido.strAwayTeam,
-            golesLocal: 0, // Lo forzamos a 0 porque es "próximo"
+            local: fixtureFutu.strHomeTeam,
+            visitante: fixtureFutu.strAwayTeam,
+            golesLocal: 0, 
             golesVisitante: 0,
             minuto: fechaFormateada,
             estado: 'PROXIMO',
@@ -119,15 +111,15 @@ async function cargarProximosPartidosProgresivamente() {
           });
 
         } else {
-           throw new Error("No hay resultados recientes");
+           throw new Error("Agenda vacía"); // Salta al catch para poner la tarjeta TBD
         }
       } else {
-         throw new Error("Equipo no encontrado");
+         throw new Error("Equipo no encontrado"); // Salta al catch para poner la tarjeta TBD
       }
 
     } catch (err) {
-      console.warn(`⚠️ TheSportsDB no tiene datos para ${equipo.nombre}. Inyectando tarjeta TBD.`);
-      // 🛡️ PLAN B (TBD): Si por algún motivo TheSportsDB no lo encuentra
+      console.log(`ℹ️ ${equipo.nombre} no tiene partidos programados. Generando tarjeta TBD.`);
+      // 🛡️ PLAN B (TBD): Tarjeta elegante "Por definir" si el calendario está vacío
       listaTemporal.push({
         id: `tbd-${equipo.idFootball}`,
         equipoTrackedId: equipo.idFootball, 
@@ -142,15 +134,13 @@ async function cargarProximosPartidosProgresivamente() {
       });
     }
     
-    // Actualizamos la UI en tiempo real mientras avanza la lista
     cacheProximosPartidos = [...listaTemporal];
     emitirDatosAlFrontend();
     
-    // Pausa amigable de 1 segundo
     await esperar(1000); 
   }
 
-  console.log(`✅ Carga completada. ${cacheProximosPartidos.length} tarjetas exactas generadas.`);
+  console.log(`✅ Carga de calendario completada con éxito.`);
   cargandoProximos = false;
 }
 
