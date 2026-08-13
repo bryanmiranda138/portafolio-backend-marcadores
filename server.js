@@ -46,6 +46,24 @@ async function actualizarYTransmitirPartidos() {
           minuto: event.time.elapsed,       // Minuto del gol
           tipo: event.detail                // 'Normal Goal', 'Penalty', 'Own Goal', etc.
         }));
+      // --- NUEVA LÓGICA DE TIEMPO Y ESTADO ---
+      const statusCorto = fixture.fixture.status.short;
+      const elapsed = fixture.fixture.status.elapsed;
+      const extra = fixture.fixture.status.extra;
+
+      let tiempoAmostrar = '';
+
+      if (statusCorto === 'HT') {
+        tiempoAmostrar = 'Medio Tiempo';
+      } else if (statusCorto === 'FT' || statusShort === 'AET' || statusShort === 'PEN') {
+        tiempoAmostrar = 'Finalizado';
+      } else if (extra) {
+        // Si hay tiempo agregado, mostramos "90 + 4'" por ejemplo
+        tiempoAmostrar = `${elapsed} + ${extra}'`;
+      } else {
+        // Minuto normal
+        tiempoAmostrar = `${elapsed}'`;
+      }
 
       return {
         id: fixture.fixture.id,
@@ -54,6 +72,7 @@ async function actualizarYTransmitirPartidos() {
         golesLocal: fixture.goals.home ?? 0,
         golesVisitante: fixture.goals.away ?? 0,
         minuto: `${fixture.fixture.status.elapsed}'`,
+        estado: statusCorto, //
         anotadores: anotadores // 👈 Enviamos la lista de goleadores
       };
     }); // <-- Aquí termina el mapeo de los partidos
