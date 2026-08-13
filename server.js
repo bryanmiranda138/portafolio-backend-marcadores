@@ -9,46 +9,60 @@ const app = express();
 app.use(cors());
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
-});
+const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-// 📌 TUS EQUIPOS Y SELECCIONES FAVORITAS
+// 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
-  { id: 529, nombre: 'FC Barcelona' },
-  { id: 541, nombre: 'Real Madrid' },
-  { id: 451, nombre: 'Boca Juniors' },
-  { id: 435, nombre: 'River Plate' },
-  { id: 40,  nombre: 'Liverpool' },
-  { id: 50,  nombre: 'Manchester City' },
-  { id: 2307, nombre: 'C.D. Águila' },
-  { id: 8984, nombre: 'Inter Miami' },
-  { id: 26,  nombre: 'Argentina' },
-  { id: 6,   nombre: 'Brasil' },
-  { id: 10,  nombre: 'Inglaterra' },
-  { id: 2,   nombre: 'Francia' },
-  { id: 9,   nombre: 'España' }
+  { id: 529, nombre: 'FC Barcelona' }, { id: 541, nombre: 'Real Madrid' },
+  { id: 451, nombre: 'Boca Juniors' }, { id: 435, nombre: 'River Plate' },
+  { id: 40,  nombre: 'Liverpool' }, { id: 50,  nombre: 'Manchester City' },
+  { id: 2307, nombre: 'C.D. Águila' }, { id: 8984, nombre: 'Inter Miami' },
+  { id: 26,  nombre: 'Argentina' }, { id: 6,   nombre: 'Brasil' },
+  { id: 10,  nombre: 'Inglaterra' }, { id: 2,   nombre: 'Francia' }, { id: 9,   nombre: 'España' }
 ];
 
-const INTERVALO_CONSULTA = 10 * 60 * 1000; // 10 minutos para los partidos en vivo
+const INTERVALO_CONSULTA = 10 * 60 * 1000; 
 
-// Memoria del servidor
+// Memoria
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
 let partidosEnVivoCache = []; 
 
-// ⏳ HELPER: Función para pausar el código (Throttling)
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 1️⃣ FUNCIÓN: Obtener próximos partidos LENTAMENTE (1 por cada 7 segundos)
+// 🛡️ PLAN B: Datos simulados en caso de que la API bloquee por límite diario
+const DATOS_RESPALDO = [
+  { id: 991, equipoTrackedId: 541, local: 'Real Madrid', visitante: 'AC Milan', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
+  { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', visitante: 'Arsenal', golesLocal: 0, golesVisitante: 0, minuto: 'Próx. Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
+  { id: 993, equipoTrackedId: 8984, local: 'Inter Miami', visitante: 'LA Galaxy', golesLocal: 0, golesVisitante: 0, minuto: 'Mañana, 18:30', estado: 'PROXIMO', esEnVivo: false, anotadores: [] }
+];
+
+// Función para unificar y enviar
+function emitirDatosAlFrontend(socketEspecifico = null) {
+  const idsJugandoAhora = new Set();
+  partidosEnVivoCache.forEach(p => {
+    idsJugandoAhora.add(p.equipoIdFiltro1);
+    idsJugandoAhora.add(p.equipoIdFiltro2);
+  });
+
+  const proximosFiltrados = cacheProximosPartidos.filter(p => !idsJugandoAhora.has(p.equipoTrackedId));
+  const listaFinal = [...partidosEnVivoCache, ...proximosFiltrados];
+  
+  if (socketEspecifico) {
+    // Solo le envía a quien acaba de entrar
+    socketEspecifico.emit('marcadores_actualizados', listaFinal);
+  } else {
+    // Le envía a todos (cuando hay una actualización)
+    io.emit('marcadores_actualizados', listaFinal);
+  }
+}
+
+// 1️⃣ Obtener próximos partidos progresivamente
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos || cacheProximosPartidos.length > 0) return;
   
   cargandoProximos = true;
-  console.log('⏳ Iniciando carga progresiva de próximos partidos (evitando el Rate Limit de la API)...');
+  console.log('⏳ Iniciando carga de próximos partidos...');
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
@@ -56,21 +70,24 @@ async function cargarProximosPartidosProgresivamente() {
         headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
       });
 
-      // Si la API nos avisa que llegamos al límite diario, paramos el ciclo
-      if (response.data.errors && response.data.errors.requests) {
-        console.error('🚫 LÍMITE DIARIO DE LA API ALCANZADO (100/100). Intenta mañana.');
-        break;
+      // 🚨 DETECCIÓN DE ERRORES OCULTOS DE LA API
+      if (response.data.errors && Object.keys(response.data.errors).length > 0) {
+        console.error(`⚠️ API rechazó la petición de ${equipo.nombre}:`, response.data.errors);
+        
+        // Si agotamos límite o falló el token, metemos el PLAN B y salimos
+        if (response.data.errors.requests || response.data.errors.rateLimit || response.data.errors.token) {
+           console.log('🛡️ ACTIVANDO PLAN B: Inyectando partidos de respaldo para proteger el portafolio.');
+           cacheProximosPartidos = [...DATOS_RESPALDO];
+           emitirDatosAlFrontend();
+           break; 
+        }
       }
 
       const fixture = response.data.response?.[0];
-      
       if (fixture) {
         const fecha = new Date(fixture.fixture.date);
-        const fechaFormateada = fecha.toLocaleDateString('es-ES', {
-          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-        });
-
-        // Agregamos el partido a la memoria
+        const fechaFormateada = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+        
         cacheProximosPartidos.push({
           id: fixture.fixture.id,
           equipoTrackedId: equipo.id,
@@ -83,38 +100,35 @@ async function cargarProximosPartidosProgresivamente() {
           esEnVivo: false,
           anotadores: []
         });
-
-        // 📡 Emitimos al frontend INMEDIATAMENTE para que aparezca en pantalla
         emitirDatosAlFrontend();
       }
     } catch (err) {
-      console.error(`❌ Error con ${equipo.nombre}:`, err.message);
+      console.error(`❌ Error HTTP con ${equipo.nombre}:`, err.message);
     }
-
-    // 🛑 MAGIA SENIOR: Esperamos 7 segundos entre cada equipo (Respetando los 10 req/minuto)
-    await esperar(7000); 
+    
+    // Esperamos 8 segundos para no agobiar a la API
+    await esperar(8000); 
   }
-  
-  console.log('✅ Carga de próximos partidos completada exitosamente.');
+  console.log('✅ Carga completada.');
 }
 
-// 2️⃣ FUNCIÓN: Consultar partidos en vivo global
+// 2️⃣ Consultar en vivo
 async function buscarPartidosEnVivo() {
   try {
     const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
       headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
     });
 
+    if (responseLive.data.errors && Object.keys(responseLive.data.errors).length > 0) return; // Si hay error, lo ignoramos para no romper el caché
+
     const targetIds = EQUIPOS_FAVORITOS.map(e => e.id);
     const partidosLiveCrudos = responseLive.data.response || [];
-    
-    partidosEnVivoCache = []; // Limpiamos caché en vivo anterior
+    partidosEnVivoCache = []; 
 
     partidosLiveCrudos.forEach(fixture => {
       const homeId = fixture.teams.home.id;
       const awayId = fixture.teams.away.id;
 
-      // Si juega uno de nuestros favoritos...
       if (targetIds.includes(homeId) || targetIds.includes(awayId)) {
         let tiempoAmostrar = `${fixture.fixture.status.elapsed}'`;
         if (fixture.fixture.status.short === 'HT') tiempoAmostrar = 'Medio Tiempo';
@@ -131,52 +145,34 @@ async function buscarPartidosEnVivo() {
           minuto: tiempoAmostrar,
           estado: fixture.fixture.status.short,
           esEnVivo: true,
-          anotadores: [] // Simplificado para este ejemplo
+          anotadores: [] 
         });
       }
     });
 
     emitirDatosAlFrontend();
   } catch (error) {
-    console.error('❌ Error buscando partidos en vivo:', error.message);
+    console.error('❌ Error buscando en vivo:', error.message);
   }
 }
 
-// 3️⃣ FUNCIÓN: Mezclar en vivo con próximos y enviar a React
-function emitirDatosAlFrontend() {
-  // Qué equipos están jugando en este instante
-  const idsJugandoAhora = new Set();
-  partidosEnVivoCache.forEach(p => {
-    idsJugandoAhora.add(p.equipoIdFiltro1);
-    idsJugandoAhora.add(p.equipoIdFiltro2);
-  });
-
-  // Filtramos los próximos partidos para ocultar los que YA están jugando en vivo
-  const proximosFiltrados = cacheProximosPartidos.filter(p => !idsJugandoAhora.has(p.equipoTrackedId));
-
-  // Combinamos: Los en vivo primero, los próximos después
-  const listaFinal = [...partidosEnVivoCache, ...proximosFiltrados];
-  
-  io.emit('marcadores_actualizados', listaFinal);
-}
-
-// ⏱️ Inicialización de servicios
-setTimeout(cargarProximosPartidosProgresivamente, 2000); // Empieza a cargar 2s después de arrancar el server
-setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); // Busca en vivo cada 10 mins
+// Arranque
+setTimeout(cargarProximosPartidosProgresivamente, 2000); 
+setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
 
 io.on('connection', (socket) => {
   console.log(`⚡ Cliente conectado: ${socket.id}`);
   
-  // Si entra alguien nuevo, le mandamos lo que ya tenemos cargado en memoria de inmediato
   if (cacheProximosPartidos.length > 0 || partidosEnVivoCache.length > 0) {
-    emitirDatosAlFrontend();
+    // Si ya tenemos datos listos, se los mandamos directo a él
+    emitirDatosAlFrontend(socket);
   } else {
-    // Si acaba de prender el server, forzamos un chequeo en vivo rápido
+    // Si acaba de prender, forzamos busqueda
     buscarPartidosEnVivo();
   }
+
+  socket.on('disconnect', () => console.log(`❌ Desconectado: ${socket.id}`));
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));
