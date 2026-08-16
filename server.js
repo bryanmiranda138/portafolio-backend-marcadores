@@ -108,7 +108,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI, idEquipoAPI = null) {
   return null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Escudos dinámicos originales)
+// 1️⃣ API #1: TheSportsDB (Próximos Partidos con Filtro de Tiempo Futuro)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -124,44 +124,50 @@ async function cargarProximosPartidosProgresivamente() {
       const resPartidos = await axios.get(urlPartidos);
       const proximosEventos = resPartidos.data?.events;
 
-      if (proximosEventos && proximosEventos.length > 0) {
-        const ahora = Date.now();
-        const eventosRealmenteFuturos = proximosEventos.filter(ev => {
-          if (!ev.strTimestamp) return false;
-          const fechaEv = new Date(ev.strTimestamp).getTime();
-          return fechaEv > ahora;
-        });
+        if (proximosEventos && proximosEventos.length > 0) {
+          const ahora = Date.now();
 
-        if (eventosRealmenteFuturos.length > 0) {
-          const fixtureFutu = eventosRealmenteFuturos[0];
-          const fechaUTC = new Date(fixtureFutu.strTimestamp);
-          const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
-          
-          const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
+          // 🧠 FILTRO DE SEGURIDAD: Solo aceptamos partidos cuya hora de inicio sea en el FUTURO
+          const eventosRealmenteFuturos = proximosEventos.filter(ev => {
+            if (!ev.strTimestamp) return false;
+            const fechaEv = new Date(ev.strTimestamp).getTime();
+            return fechaEv > ahora; // Ignora partidos pasados o que ya iniciaron
           });
 
-          listaTemporal.push({
-            id: fixtureFutu.idEvent,
-            equipoTrackedId: mainFavId,
-            local: fixtureFutu.strHomeTeam,
-            // 🛡️ Restaurados los escudos transparentes originales de TheSportsDB
-            logoLocal: fixtureFutu.strHomeTeamBadge || null,
-            visitante: fixtureFutu.strAwayTeam,
-            logoVisitante: fixtureFutu.strAwayTeamBadge || null,
-            golesLocal: 0, 
-            golesVisitante: 0,
-            minuto: fechaFormateada,
-            timestamp: fechaUTC.getTime(),
-            estado: 'PROXIMO',
-            esEnVivo: false,
-            anotadores: [] 
-          });
+          if (eventosRealmenteFuturos.length > 0) {
+            const fixtureFutu = eventosRealmenteFuturos[0];
+            
+            const fechaUTC = new Date(fixtureFutu.strTimestamp);
+            const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
+            const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
+              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+              timeZone: 'UTC'
+            });
+            
+            const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
+            
+            listaTemporal.push({
+              id: fixtureFutu.idEvent,
+              equipoTrackedId: equipo.idFootball,
+              local: fixtureFutu.strHomeTeam,
+              logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
+              visitante: fixtureFutu.strAwayTeam,
+              logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
+              golesLocal: 0, 
+              golesVisitante: 0,
+              minuto: fechaFormateada,
+              estado: 'PROXIMO',
+              esEnVivo: false,
+              anotadores: [] 
+            });
+          } else {
+             throw new Error("El partido ya ocurrió o está en curso"); 
+          }
         } else {
-           throw new Error("El partido ya ocurrió o está en curso"); 
+           throw new Error("Agenda vacía"); 
         }
       } else {
-         throw new Error("Agenda vacía"); 
+         throw new Error("Equipo no encontrado"); 
       }
     } catch (err) {
       // 🛡️ Fallback: Solo si no hay partido, usamos la URL genérica para la tarjeta de vacaciones
