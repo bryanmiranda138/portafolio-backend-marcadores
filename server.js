@@ -148,7 +148,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos En Vivo con Logs de Depuración)
+// 2️⃣ API #2: API-Football (Partidos En Vivo con priorización de estados)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -177,9 +177,22 @@ async function buscarPartidosEnVivo() {
       if (targetIds.includes(homeId) || targetIds.includes(awayId)) {
         console.log(`⚽ ¡PARTIDO EN VIVO ENCONTRADO! ${fixture.teams.home.name} vs ${fixture.teams.away.name}`);
         
-        let tiempoAmostrar = `${fixture.fixture.status.elapsed}'`;
-        if (fixture.fixture.status.short === 'HT') tiempoAmostrar = 'Medio Tiempo';
-        if (fixture.fixture.status.extra) tiempoAmostrar = `${fixture.fixture.status.elapsed} + ${fixture.fixture.status.extra}'`;
+        const statusCorto = fixture.fixture.status.short;
+        const elapsed = fixture.fixture.status.elapsed;
+        const extra = fixture.fixture.status.extra;
+
+        // 🧠 LÓGICA CORREGIDA CON "ELSE IF"
+        let tiempoAmostrar = '';
+
+        if (statusCorto === 'HT') {
+          tiempoAmostrar = 'Medio Tiempo'; // Prioridad #1: Si es Medio Tiempo, muestra el texto
+        } else if (['FT', 'AET', 'PEN'].includes(statusCorto)) {
+          tiempoAmostrar = 'Finalizado';
+        } else if (extra) {
+          tiempoAmostrar = `${elapsed} + ${extra}'`; // Si está en juego y tiene tiempo agregado (ej: 45 + 2')
+        } else {
+          tiempoAmostrar = `${elapsed}'`; // Minuto normal en juego
+        }
 
         const anotadoresData = (fixture.events || []).filter(e => e.type === 'Goal').map(e => ({
           equipo: e.team.name, jugador: e.player.name || 'Desconocido', minuto: e.time.elapsed, tipo: e.detail
@@ -196,7 +209,7 @@ async function buscarPartidosEnVivo() {
           golesLocal: fixture.goals.home ?? 0,
           golesVisitante: fixture.goals.away ?? 0,
           minuto: tiempoAmostrar,
-          estado: fixture.fixture.status.short,
+          estado: statusCorto,
           esEnVivo: true,
           anotadores: anotadoresData
         });
