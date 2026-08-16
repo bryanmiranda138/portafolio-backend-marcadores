@@ -23,7 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
-  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], strSearch: 'Inter Miami' },
+  { nombre: 'Inter Miami',    idFootball: 8984, strSearch: 'Inter Miami' },
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -38,7 +38,7 @@ const EXCLUSIONES = [
   'barcelona de guayaquil',
   'liverpool montevideo',   // Evita Liverpool de Uruguay
   'river plate montevideo',
-  'real madrid b', // Evita Real Madrid Castilla (confundido con Real Madrid)
+  'real madrid b',
   'barcelona b'
 ];
 
