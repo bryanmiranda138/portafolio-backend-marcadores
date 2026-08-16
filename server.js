@@ -14,7 +14,7 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 📌 TUS EQUIPOS FAVORITOS
+// 📌 TUS EQUIPOS FAVORITOS (Corregido el ID de Inter Miami a 9723)
 const EQUIPOS_FAVORITOS = [
   { nombre: 'FC Barcelona',   idFootball: 529,  strSearch: 'Barcelona' },
   { nombre: 'Real Madrid',    idFootball: 541,  strSearch: 'Real Madrid' },
@@ -23,7 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
-  { nombre: 'Inter Miami',    idFootball: 8984, strSearch: 'Inter Miami' },
+  { nombre: 'Inter Miami',    idFootball: 9723, strSearch: 'Inter Miami' }, // 👈 ID Oficial Primer Equipo
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -33,10 +33,10 @@ const EQUIPOS_FAVORITOS = [
 
 // 🛡️ EXCLUSIONES CONOCIDAS PARA EVITAR FALSOS POSITIVOS
 const EXCLUSIONES = [
-  'new england',            // Evita New England Revolution (confundido con England)
-  'barcelona sc',           // Evita Barcelona SC de Ecuador (confundido con FC Barcelona)
+  'new england',            
+  'barcelona sc',           
   'barcelona de guayaquil',
-  'liverpool montevideo',   // Evita Liverpool de Uruguay
+  'liverpool montevideo',   
   'river plate montevideo',
   'real madrid b',
   'barcelona b'
@@ -49,11 +49,6 @@ let cargandoProximos = false;
 let partidosEnVivoCache = []; 
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-const DATOS_RESPALDO = [
-  { id: 991, equipoTrackedId: 541, local: 'Real Madrid', logoLocal: 'https://media.api-sports.io/football/teams/541.png', visitante: 'AC Milan', logoVisitante: 'https://media.api-sports.io/football/teams/489.png', golesLocal: 0, golesVisitante: 0, minuto: 'Sábado, 13:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] },
-  { id: 992, equipoTrackedId: 529, local: 'FC Barcelona', logoLocal: 'https://media.api-sports.io/football/teams/529.png', visitante: 'Arsenal', logoVisitante: 'https://media.api-sports.io/football/teams/42.png', golesLocal: 0, golesVisitante: 0, minuto: 'Domingo, 10:00', estado: 'PROXIMO', esEnVivo: false, anotadores: [] }
-];
 
 function emitirDatosAlFrontend(socketEspecifico = null) {
   const idsJugandoAhora = new Set();
@@ -86,22 +81,18 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   if (!nombreEquipoAPI) return null;
   const nombreNorm = nombreEquipoAPI.toLowerCase().trim();
 
-  // 1. Si el equipo coincide con alguna exclusión, se descarta de inmediato
   if (EXCLUSIONES.some(ex => nombreNorm.includes(ex))) {
     return null;
   }
 
-  // 2. Comprobación estricta con palabras completas
   for (const fav of EQUIPOS_FAVORITOS) {
     const searchNorm = fav.strSearch.toLowerCase().trim();
     const nombreFavNorm = fav.nombre.toLowerCase().trim();
 
-    // Coincidencia exacta
     if (nombreNorm === searchNorm || nombreNorm === nombreFavNorm) {
       return fav;
     }
 
-    // Coincidencia por límite de palabra (\b) para no confundir subpalabras
     const regex = new RegExp(`\\b${searchNorm}\\b`, 'i');
     if (regex.test(nombreNorm)) {
       return fav;
@@ -111,7 +102,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   return null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Próximos Partidos)
+// 1️⃣ API #1: TheSportsDB (Buscador Próximos Partidos con Fechas Blindadas)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -128,34 +119,72 @@ async function cargarProximosPartidosProgresivamente() {
       if (equipoEncontrado) {
         const urlPartidos = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipoEncontrado.idTeam}`;
         const resPartidos = await axios.get(urlPartidos);
-        const proximosEventos = resPartidos.data?.events;
+        let proximosEventos = resPartidos.data?.events;
 
         if (proximosEventos && proximosEventos.length > 0) {
-          const fixtureFutu = proximosEventos[0];
-          
-          const fechaUTC = new Date(fixtureFutu.strTimestamp);
-          const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
-          const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-            timeZone: 'UTC'
+          const ahora = Date.now();
+
+          // 🧠 FILTRO DE FECHA INDESTRUCTIBLE
+          const eventosRealmenteFuturos = proximosEventos.filter(ev => {
+            let fechaPartido;
+            if (ev.strTimestamp) {
+                fechaPartido = new Date(ev.strTimestamp).getTime();
+            } else if (ev.dateEvent) {
+                const hora = ev.strTime || '00:00:00';
+                fechaPartido = new Date(`${ev.dateEvent}T${hora}+00:00`).getTime();
+            }
+
+            // Si la API mandó una fecha corrupta, lo pasamos por si acaso en vez de borrarlo
+            if (!fechaPartido || isNaN(fechaPartido)) return true;
+
+            // Tolerancia de 4 horas: Retiene el partido en "Próximos" hasta 4 horas tras su inicio
+            const toleranciaHoras = 4 * 60 * 60 * 1000;
+            return (fechaPartido + toleranciaHoras) > ahora;
           });
-          
-          const esLocal = String(fixtureFutu.idHomeTeam) === String(equipoEncontrado.idTeam);
-          
-          listaTemporal.push({
-            id: fixtureFutu.idEvent,
-            equipoTrackedId: equipo.idFootball,
-            local: fixtureFutu.strHomeTeam,
-            logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
-            visitante: fixtureFutu.strAwayTeam,
-            logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
-            golesLocal: 0, 
-            golesVisitante: 0,
-            minuto: fechaFormateada,
-            estado: 'PROXIMO',
-            esEnVivo: false,
-            anotadores: [] 
-          });
+
+          if (eventosRealmenteFuturos.length > 0) {
+            
+            // ORDENAMOS cronológicamente para garantizar que muestre el inminente y no uno lejano
+            eventosRealmenteFuturos.sort((a, b) => {
+                const timeA = a.strTimestamp ? new Date(a.strTimestamp).getTime() : new Date(`${a.dateEvent}T${a.strTime||'00:00:00'}+00:00`).getTime();
+                const timeB = b.strTimestamp ? new Date(b.strTimestamp).getTime() : new Date(`${b.dateEvent}T${b.strTime||'00:00:00'}+00:00`).getTime();
+                return timeA - timeB;
+            });
+
+            const fixtureFutu = eventosRealmenteFuturos[0];
+            
+            let fechaFormateada = 'Fecha por confirmar';
+            if (fixtureFutu.strTimestamp) {
+                const fechaUTC = new Date(fixtureFutu.strTimestamp);
+                const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
+                fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
+                  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                  timeZone: 'UTC'
+                });
+            } else if (fixtureFutu.dateEvent) {
+                fechaFormateada = `${fixtureFutu.dateEvent} ${fixtureFutu.strTime || ''}`.trim();
+            }
+            
+            const esLocal = String(fixtureFutu.idHomeTeam) === String(equipoEncontrado.idTeam);
+            
+            listaTemporal.push({
+              id: fixtureFutu.idEvent,
+              equipoTrackedId: equipo.idFootball,
+              local: fixtureFutu.strHomeTeam,
+              // Asignamos tu escudo del perfil principal para evitar imágenes defectuosas
+              logoLocal: esLocal ? equipoEncontrado.strTeamBadge : (fixtureFutu.strHomeTeamBadge || null),
+              visitante: fixtureFutu.strAwayTeam,
+              logoVisitante: !esLocal ? equipoEncontrado.strTeamBadge : (fixtureFutu.strAwayTeamBadge || null),
+              golesLocal: 0, 
+              golesVisitante: 0,
+              minuto: fechaFormateada,
+              estado: 'PROXIMO',
+              esEnVivo: false,
+              anotadores: [] 
+            });
+          } else {
+             throw new Error("Solo hay partidos pasados"); 
+          }
         } else {
            throw new Error("Agenda vacía"); 
         }
@@ -241,14 +270,14 @@ async function buscarPartidosEnVivo() {
             tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol'
           }));
 
-        // 🟨 🟥 2. CAPTURA DE TARJETAS (Amarillas y Rojas)
+        // 🟨 🟥 2. CAPTURA DE TARJETAS (Protegido contra Nulos)
         const tarjetasData = eventos
           .filter(e => e.type === 'Card')
           .map(e => ({
             equipo: e.team.name,
             jugador: e.player.name || 'Desconocido',
             minuto: e.time.elapsed,
-            tipo: e.detail.toLowerCase().includes('yellow') ? 'Amarilla' : 'Roja'
+            tipo: (e.detail || '').toLowerCase().includes('yellow') ? 'Amarilla' : 'Roja'
           }));
 
         partidosEnVivoCache.push({
@@ -265,7 +294,7 @@ async function buscarPartidosEnVivo() {
           estado: statusCorto,
           esEnVivo: true,
           anotadores: anotadoresData,
-          tarjetas: tarjetasData // 👈 Agregamos las tarjetas al objeto enviado
+          tarjetas: tarjetasData
         });
       }
     });
@@ -281,6 +310,7 @@ buscarPartidosEnVivo();
 setTimeout(cargarProximosPartidosProgresivamente, 2000); 
 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
+setInterval(cargarProximosPartidosProgresivamente, 30 * 60 * 1000); 
 
 io.on('connection', (socket) => {
   emitirDatosAlFrontend(socket);
