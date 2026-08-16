@@ -14,21 +14,21 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 📌 TUS EQUIPOS FAVORITOS (Con nombre corregido y datos blindados)
+// 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',   idFootball: 529,  idSportsDB: 133739, strSearch: 'Barcelona', logo: 'https://media.api-sports.io/football/teams/529.png' },
-  { nombre: 'Real Madrid',    idFootball: 541,  idSportsDB: 133604, strSearch: 'Real Madrid', logo: 'https://media.api-sports.io/football/teams/541.png' },
-  { nombre: 'Boca Juniors',   idFootball: 451,  idSportsDB: 135205, strSearch: 'Boca Juniors', logo: 'https://media.api-sports.io/football/teams/451.png' },
-  { nombre: 'River Plate',    idFootball: 435,  idSportsDB: 135211, strSearch: 'River Plate', logo: 'https://media.api-sports.io/football/teams/435.png' },
-  { nombre: 'Liverpool',      idFootball: 40,   idSportsDB: 133602, strSearch: 'Liverpool', logo: 'https://media.api-sports.io/football/teams/40.png' },
-  { nombre: 'Manchester City',idFootball: 50,   idSportsDB: 133613, strSearch: 'Manchester City', logo: 'https://media.api-sports.io/football/teams/50.png' },
-  { nombre: 'C.D. Águila',    idFootball: 2307, idSportsDB: 140411, strSearch: 'Aguila', logo: 'https://media.api-sports.io/football/teams/2307.png' }, 
-  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], idSportsDB: 140989, strSearch: 'Inter Miami', logo: 'https://media.api-sports.io/football/teams/9723.png' },
-  { nombre: 'Argentina',      idFootball: 26,   idSportsDB: 135275, strSearch: 'Argentina', logo: 'https://media.api-sports.io/football/teams/26.png' },
-  { nombre: 'Brasil',         idFootball: 6,    idSportsDB: 135276, strSearch: 'Brazil', logo: 'https://media.api-sports.io/football/teams/6.png' },
-  { nombre: 'Inglaterra',     idFootball: 10,   idSportsDB: 133702, strSearch: 'England', logo: 'https://media.api-sports.io/football/teams/10.png' },
-  { nombre: 'Francia',        idFootball: 2,    idSportsDB: 133714, strSearch: 'France', logo: 'https://media.api-sports.io/football/teams/2.png' },
-  { nombre: 'España',         idFootball: 9,    idSportsDB: 133738, strSearch: 'Spain', logo: 'https://media.api-sports.io/football/teams/9.png' }
+  { nombre: 'FC Barcelona',   idFootball: 529,  strSearch: 'Barcelona' },
+  { nombre: 'Real Madrid',    idFootball: 541,  strSearch: 'Real Madrid' },
+  { nombre: 'Boca Juniors',   idFootball: 451,  strSearch: 'Boca Juniors' },
+  { nombre: 'River Plate',    idFootball: 435,  strSearch: 'River Plate' },
+  { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
+  { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
+  { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
+  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], strSearch: 'Inter Miami' },
+  { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
+  { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
+  { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
+  { nombre: 'Francia',        idFootball: 2,    strSearch: 'France' },
+  { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
 ];
 
 // 🛡️ EXCLUSIONES CONOCIDAS PARA EVITAR FALSOS POSITIVOS
