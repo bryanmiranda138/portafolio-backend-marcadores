@@ -31,6 +31,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
 ];
 
+// Consulta en vivo cada 10 minutos
 const INTERVALO_CONSULTA = 10 * 60 * 1000; 
 
 let cacheProximosPartidos = [];
@@ -70,10 +71,12 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
-// 1️⃣ API #1: TheSportsDB (Obtenemos el Badge/Escudo)
+// 1️⃣ API #1: TheSportsDB (Próximos Partidos)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
+  console.log('⏳ Iniciando buscador dinámico de próximos partidos...');
+
   let listaTemporal = [];
 
   for (const equipo of EQUIPOS_FAVORITOS) {
@@ -89,19 +92,15 @@ async function cargarProximosPartidosProgresivamente() {
 
         if (proximosEventos && proximosEventos.length > 0) {
           const fixtureFutu = proximosEventos[0];
-          // 1. Obtenemos la fecha en UTC desde TheSportsDB
-          const fechaUTC = new Date(fixtureFutu.strTimestamp);
           
-          // 2. 🇸🇻 Convertimos a Hora de El Salvador (UTC-6) matemáticamente
+          // 🇸🇻 Convertimos la fecha UTC a Hora de El Salvador (UTC-6)
+          const fechaUTC = new Date(fixtureFutu.strTimestamp);
           const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
-
-          // 3. Formateamos la fecha a texto amigable
           const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-            timeZone: 'UTC' // Forzamos UTC aquí para que Node.js no aplique otra zona horaria encima de nuestra resta
+            timeZone: 'UTC'
           });
           
-          // Magia: Validamos de quién es el escudo usando el ID para asignarlo correctamente al Local y Visitante
           const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
           
           listaTemporal.push({
@@ -125,7 +124,6 @@ async function cargarProximosPartidosProgresivamente() {
          throw new Error("Equipo no encontrado"); 
       }
     } catch (err) {
-      // 🛡️ PLAN B (TBD): Mantenemos el escudo del equipo Favorito aunque no haya rival
       const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${equipo.idFootball}.png`;
       listaTemporal.push({
         id: `tbd-${equipo.idFootball}`,
@@ -133,7 +131,7 @@ async function cargarProximosPartidosProgresivamente() {
         local: equipo.nombre, 
         logoLocal: urlEscudoRespaldo,
         visitante: 'Rival por definir', 
-        logoVisitante: null, // Escudo genérico en frontend
+        logoVisitante: null,
         golesLocal: 0,
         golesVisitante: 0,
         minuto: 'Fecha por confirmar', 
@@ -150,17 +148,26 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Marcadores en vivo traen el escudo por defecto)
+// 2️⃣ API #2: API-Football (Partidos En Vivo con Logs de Depuración)
 async function buscarPartidosEnVivo() {
   try {
+    console.log('🔍 Consultando partidos en vivo en API-Football...');
+    
     const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
       headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
     });
 
-    if (responseLive.data?.errors && Object.keys(responseLive.data.errors).length > 0) return;
+    const errores = responseLive.data?.errors;
+    if (errores && Object.keys(errores).length > 0) {
+      console.error('⚠️ API-Football devolvió un mensaje/error:', JSON.stringify(errores));
+      return;
+    }
 
     const targetIds = EQUIPOS_FAVORITOS.map(e => e.idFootball);
-    const partidosLiveCrudos = responseLive.data.response || [];
+    const partidosLiveCrudos = responseLive.data?.response || [];
+    
+    console.log(`🌐 API-Football reporta ${partidosLiveCrudos.length} partidos jugándose en el mundo en este momento.`);
+
     partidosEnVivoCache = []; 
 
     partidosLiveCrudos.forEach(fixture => {
@@ -168,12 +175,14 @@ async function buscarPartidosEnVivo() {
       const awayId = fixture.teams.away.id;
 
       if (targetIds.includes(homeId) || targetIds.includes(awayId)) {
+        console.log(`⚽ ¡PARTIDO EN VIVO ENCONTRADO! ${fixture.teams.home.name} vs ${fixture.teams.away.name}`);
+        
         let tiempoAmostrar = `${fixture.fixture.status.elapsed}'`;
         if (fixture.fixture.status.short === 'HT') tiempoAmostrar = 'Medio Tiempo';
         if (fixture.fixture.status.extra) tiempoAmostrar = `${fixture.fixture.status.elapsed} + ${fixture.fixture.status.extra}'`;
 
         const anotadoresData = (fixture.events || []).filter(e => e.type === 'Goal').map(e => ({
-            equipo: e.team.name, jugador: e.player.name || 'Desconocido', minuto: e.time.elapsed, tipo: e.detail
+          equipo: e.team.name, jugador: e.player.name || 'Desconocido', minuto: e.time.elapsed, tipo: e.detail
         }));
 
         partidosEnVivoCache.push({
@@ -181,9 +190,9 @@ async function buscarPartidosEnVivo() {
           equipoIdFiltro1: homeId,
           equipoIdFiltro2: awayId,
           local: fixture.teams.home.name,
-          logoLocal: fixture.teams.home.logo,       // 👈 Extraemos escudo local
+          logoLocal: fixture.teams.home.logo,
           visitante: fixture.teams.away.name,
-          logoVisitante: fixture.teams.away.logo,   // 👈 Extraemos escudo visitante
+          logoVisitante: fixture.teams.away.logo,
           golesLocal: fixture.goals.home ?? 0,
           golesVisitante: fixture.goals.away ?? 0,
           minuto: tiempoAmostrar,
@@ -193,14 +202,27 @@ async function buscarPartidosEnVivo() {
         });
       }
     });
+
+    if (partidosEnVivoCache.length === 0) {
+      console.log('ℹ️ Ninguno de tus 13 equipos favoritos está jugando en vivo en este preciso momento.');
+    }
+
     emitirDatosAlFrontend();
   } catch (error) {
-    console.error('❌ Error API-Football:', error.message);
+    console.error('❌ Error de conexión con API-Football al buscar en vivo:', error.message);
   }
 }
 
+// 🚀 ARRANQUE INMEDIATO
+buscarPartidosEnVivo(); // Executar de inmediato al arrancar el servidor
 setTimeout(cargarProximosPartidosProgresivamente, 2000); 
+
+// Programar la búsqueda recurrente en vivo
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
-io.on('connection', (socket) => emitirDatosAlFrontend(socket));
+
+io.on('connection', (socket) => {
+  emitirDatosAlFrontend(socket);
+});
+
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`🚀 Servidor Multi-API corriendo en puerto ${PORT}`));
