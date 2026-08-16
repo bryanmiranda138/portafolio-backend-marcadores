@@ -187,7 +187,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos En Vivo con Filtro Estricto de Exclusiones)
+// 2️⃣ API #2: API-Football (Partidos en vivo con filtro de penales errados y tarjetas)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -203,22 +203,17 @@ async function buscarPartidosEnVivo() {
     }
 
     const partidosLiveCrudos = responseLive.data?.response || [];
-    console.log(`🌐 API-Football reporta ${partidosLiveCrudos.length} partidos jugándose en el mundo.`);
-
     partidosEnVivoCache = []; 
 
     partidosLiveCrudos.forEach(fixture => {
       const homeName = fixture.teams.home.name;
       const awayName = fixture.teams.away.name;
 
-      // Evaluamos con la función estricta de exclusión y límites de palabra
       const favHome = obtenerFavoritoSiCoincide(homeName);
       const favAway = obtenerFavoritoSiCoincide(awayName);
       const equipoFavoritoEncontrado = favHome || favAway;
 
       if (equipoFavoritoEncontrado) {
-        console.log(`⚽ ¡EN VIVO CONFIRMADO! ${homeName} vs ${awayName}`);
-        
         const statusCorto = fixture.fixture.status.short;
         const elapsed = fixture.fixture.status.elapsed;
         const extra = fixture.fixture.status.extra;
@@ -234,9 +229,27 @@ async function buscarPartidosEnVivo() {
           tiempoAmostrar = `${elapsed}'`; 
         }
 
-        const anotadoresData = (fixture.events || []).filter(e => e.type === 'Goal').map(e => ({
-          equipo: e.team.name, jugador: e.player.name || 'Desconocido', minuto: e.time.elapsed, tipo: e.detail
-        }));
+        const eventos = fixture.events || [];
+
+        // 🧠 1. FILTRO DE GOLES REALES (Excluimos 'Missed Penalty')
+        const anotadoresData = eventos
+          .filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty')
+          .map(e => ({
+            equipo: e.team.name,
+            jugador: e.player.name || 'Desconocido',
+            minuto: e.time.elapsed,
+            tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol'
+          }));
+
+        // 🟨 🟥 2. CAPTURA DE TARJETAS (Amarillas y Rojas)
+        const tarjetasData = eventos
+          .filter(e => e.type === 'Card')
+          .map(e => ({
+            equipo: e.team.name,
+            jugador: e.player.name || 'Desconocido',
+            minuto: e.time.elapsed,
+            tipo: e.detail.toLowerCase().includes('yellow') ? 'Amarilla' : 'Roja'
+          }));
 
         partidosEnVivoCache.push({
           id: fixture.fixture.id,
@@ -251,14 +264,11 @@ async function buscarPartidosEnVivo() {
           minuto: tiempoAmostrar,
           estado: statusCorto,
           esEnVivo: true,
-          anotadores: anotadoresData
+          anotadores: anotadoresData,
+          tarjetas: tarjetasData // 👈 Agregamos las tarjetas al objeto enviado
         });
       }
     });
-
-    if (partidosEnVivoCache.length === 0) {
-      console.log('ℹ️ Ningún equipo favorito detectado en vivo.');
-    }
 
     emitirDatosAlFrontend();
   } catch (error) {
