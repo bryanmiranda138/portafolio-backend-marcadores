@@ -38,7 +38,7 @@ const EXCLUSIONES = [
   'barcelona de guayaquil',
   'liverpool montevideo',   // Evita Liverpool de Uruguay
   'river plate montevideo',
-  'real madrid b',
+  'real madrid b', // Evita Real Madrid Castilla (confundido con Real Madrid)
   'barcelona b'
 ];
 
