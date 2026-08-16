@@ -31,8 +31,8 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
 ];
 
-// Consulta en vivo cada 1 minuto
-const INTERVALO_CONSULTA = 1 * 60 * 1000; 
+// Consulta en vivo cada 3 minutos
+const INTERVALO_CONSULTA = 3 * 60 * 1000; 
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
@@ -148,7 +148,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos En Vivo con priorización de estados)
+// 2️⃣ API #2: API-Football (Partidos En Vivo con Búsqueda Dinámica por TEXTO)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -159,39 +159,43 @@ async function buscarPartidosEnVivo() {
 
     const errores = responseLive.data?.errors;
     if (errores && Object.keys(errores).length > 0) {
-      console.error('⚠️ API-Football devolvió un mensaje/error:', JSON.stringify(errores));
+      console.error('⚠️ API-Football devolvió un error:', JSON.stringify(errores));
       return;
     }
 
-    const targetIds = EQUIPOS_FAVORITOS.map(e => e.idFootball);
     const partidosLiveCrudos = responseLive.data?.response || [];
-    
-    console.log(`🌐 API-Football reporta ${partidosLiveCrudos.length} partidos jugándose en el mundo en este momento.`);
+    console.log(`🌐 API-Football reporta ${partidosLiveCrudos.length} partidos jugándose en el mundo.`);
 
     partidosEnVivoCache = []; 
 
     partidosLiveCrudos.forEach(fixture => {
-      const homeId = fixture.teams.home.id;
-      const awayId = fixture.teams.away.id;
+      // 1. Extraemos los nombres de los equipos que están jugando en minúsculas
+      const homeName = fixture.teams.home.name.toLowerCase();
+      const awayName = fixture.teams.away.name.toLowerCase();
 
-      if (targetIds.includes(homeId) || targetIds.includes(awayId)) {
-        console.log(`⚽ ¡PARTIDO EN VIVO ENCONTRADO! ${fixture.teams.home.name} vs ${fixture.teams.away.name}`);
+      // 🧠 2. MAGIA SENIOR: Buscamos si el nombre contiene nuestra palabra clave (ej. "inter miami")
+      const equipoFavoritoEncontrado = EQUIPOS_FAVORITOS.find(e => {
+        const terminoDeBusqueda = e.strSearch.toLowerCase();
+        return homeName.includes(terminoDeBusqueda) || awayName.includes(terminoDeBusqueda);
+      });
+
+      // Si hubo coincidencia de texto, lo procesamos:
+      if (equipoFavoritoEncontrado) {
+        console.log(`⚽ ¡EN VIVO ENCONTRADO POR NOMBRE! ${fixture.teams.home.name} vs ${fixture.teams.away.name}`);
         
         const statusCorto = fixture.fixture.status.short;
         const elapsed = fixture.fixture.status.elapsed;
         const extra = fixture.fixture.status.extra;
 
-        // 🧠 LÓGICA CORREGIDA CON "ELSE IF"
         let tiempoAmostrar = '';
-
         if (statusCorto === 'HT') {
-          tiempoAmostrar = 'Medio Tiempo'; // Prioridad #1: Si es Medio Tiempo, muestra el texto
+          tiempoAmostrar = 'Medio Tiempo';
         } else if (['FT', 'AET', 'PEN'].includes(statusCorto)) {
           tiempoAmostrar = 'Finalizado';
         } else if (extra) {
-          tiempoAmostrar = `${elapsed} + ${extra}'`; // Si está en juego y tiene tiempo agregado (ej: 45 + 2')
+          tiempoAmostrar = `${elapsed} + ${extra}'`; 
         } else {
-          tiempoAmostrar = `${elapsed}'`; // Minuto normal en juego
+          tiempoAmostrar = `${elapsed}'`; 
         }
 
         const anotadoresData = (fixture.events || []).filter(e => e.type === 'Goal').map(e => ({
@@ -200,8 +204,9 @@ async function buscarPartidosEnVivo() {
 
         partidosEnVivoCache.push({
           id: fixture.fixture.id,
-          equipoIdFiltro1: homeId,
-          equipoIdFiltro2: awayId,
+          // 3. Asignamos nuestro ID interno para que el "Efecto Espejo" lo borre de Próximos Partidos
+          equipoIdFiltro1: equipoFavoritoEncontrado.idFootball, 
+          equipoIdFiltro2: equipoFavoritoEncontrado.idFootball,
           local: fixture.teams.home.name,
           logoLocal: fixture.teams.home.logo,
           visitante: fixture.teams.away.name,
@@ -217,7 +222,7 @@ async function buscarPartidosEnVivo() {
     });
 
     if (partidosEnVivoCache.length === 0) {
-      console.log('ℹ️ Ninguno de tus 13 equipos favoritos está jugando en vivo en este preciso momento.');
+      console.log('ℹ️ Ningún equipo favorito detectado en vivo mediante búsqueda de texto.');
     }
 
     emitirDatosAlFrontend();
