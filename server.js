@@ -86,18 +86,22 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   if (!nombreEquipoAPI) return null;
   const nombreNorm = nombreEquipoAPI.toLowerCase().trim();
 
+  // 1. Si el equipo coincide con alguna exclusión, se descarta de inmediato
   if (EXCLUSIONES.some(ex => nombreNorm.includes(ex))) {
     return null;
   }
 
+  // 2. Comprobación estricta con palabras completas
   for (const fav of EQUIPOS_FAVORITOS) {
     const searchNorm = fav.strSearch.toLowerCase().trim();
     const nombreFavNorm = fav.nombre.toLowerCase().trim();
 
+    // Coincidencia exacta
     if (nombreNorm === searchNorm || nombreNorm === nombreFavNorm) {
       return fav;
     }
 
+    // Coincidencia por límite de palabra (\b) para no confundir subpalabras
     const regex = new RegExp(`\\b${searchNorm}\\b`, 'i');
     if (regex.test(nombreNorm)) {
       return fav;
@@ -116,9 +120,6 @@ async function cargarProximosPartidosProgresivamente() {
   let listaTemporal = [];
 
   for (const equipo of EQUIPOS_FAVORITOS) {
-    // 💡 SOLUCIÓN: Definimos desde el inicio el escudo de tu equipo favorito usando la CDN de API-Sports
-    const escudoFavorito = `https://media.api-sports.io/football/teams/${equipo.idFootball}.png`;
-
     try {
       const urlBusqueda = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(equipo.strSearch)}`;
       const resBusqueda = await axios.get(urlBusqueda);
@@ -136,7 +137,7 @@ async function cargarProximosPartidosProgresivamente() {
           const eventosRealmenteFuturos = proximosEventos.filter(ev => {
             if (!ev.strTimestamp) return false;
             const fechaEv = new Date(ev.strTimestamp).getTime();
-            return fechaEv > ahora; 
+            return fechaEv > ahora; // Ignora partidos pasados o que ya iniciaron
           });
 
           if (eventosRealmenteFuturos.length > 0) {
@@ -155,11 +156,9 @@ async function cargarProximosPartidosProgresivamente() {
               id: fixtureFutu.idEvent,
               equipoTrackedId: equipo.idFootball,
               local: fixtureFutu.strHomeTeam,
-              // 💡 SOLUCIÓN: Si es local, inyectamos el logo estable de API-Sports. Si no, usamos el de TheSportsDB para el rival.
-              logoLocal: esLocal ? escudoFavorito : (fixtureFutu.strHomeTeamBadge || null),
+              logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
               visitante: fixtureFutu.strAwayTeam,
-              // 💡 SOLUCIÓN: Si es visitante, inyectamos el logo estable de API-Sports.
-              logoVisitante: !esLocal ? escudoFavorito : (fixtureFutu.strAwayTeamBadge || null),
+              logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
               golesLocal: 0, 
               golesVisitante: 0,
               minuto: fechaFormateada,
@@ -177,12 +176,12 @@ async function cargarProximosPartidosProgresivamente() {
          throw new Error("Equipo no encontrado"); 
       }
     } catch (err) {
-      // 💡 Se reutiliza "escudoFavorito" aquí también
+      const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${equipo.idFootball}.png`;
       listaTemporal.push({
         id: `tbd-${equipo.idFootball}`,
         equipoTrackedId: equipo.idFootball, 
         local: equipo.nombre, 
-        logoLocal: escudoFavorito,
+        logoLocal: urlEscudoRespaldo,
         visitante: 'Rival por definir', 
         logoVisitante: null,
         golesLocal: 0,
@@ -245,7 +244,7 @@ async function buscarPartidosEnVivo() {
 
         const eventos = fixture.events || [];
 
-        // 🧠 1. FILTRO DE GOLES REALES
+        // 🧠 1. FILTRO DE GOLES REALES (Excluimos 'Missed Penalty')
         const anotadoresData = eventos
           .filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty')
           .map(e => ({
@@ -255,7 +254,7 @@ async function buscarPartidosEnVivo() {
             tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol'
           }));
 
-        // 🟨 🟥 2. CAPTURA DE TARJETAS
+        // 🟨 🟥 2. CAPTURA DE TARJETAS (Amarillas y Rojas)
         const tarjetasData = eventos
           .filter(e => e.type === 'Card')
           .map(e => ({
@@ -279,7 +278,7 @@ async function buscarPartidosEnVivo() {
           estado: statusCorto,
           esEnVivo: true,
           anotadores: anotadoresData,
-          tarjetas: tarjetasData 
+          tarjetas: tarjetasData // 👈 Agregamos las tarjetas al objeto enviado
         });
       }
     });
