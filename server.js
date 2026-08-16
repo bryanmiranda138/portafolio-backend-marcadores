@@ -23,8 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
-  // 🌟 CORRECCIÓN SOLO PARA INTER MIAMI: IDs oficiales agregados para forzar la búsqueda exacta
-  { nombre: 'Inter Miami CF', idFootball: 9723, idSportsDB: 137699, strSearch: 'Inter Miami' },
+  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], strSearch: 'Inter Miami' },
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -124,18 +123,9 @@ async function cargarProximosPartidosProgresivamente() {
 
   for (const equipo of EQUIPOS_FAVORITOS) {
     try {
-      let equipoEncontrado = null;
-
-      // 🌟 CORRECCIÓN: Si tiene idSportsDB (Inter Miami), busca por ID exacto. Si no, usa el método normal de texto.
-      if (equipo.idSportsDB) {
-        const urlBusqueda = `https://www.thesportsdb.com/api/v1/json/3/lookupteam.php?id=${equipo.idSportsDB}`;
-        const resBusqueda = await axios.get(urlBusqueda);
-        equipoEncontrado = resBusqueda.data?.teams?.[0];
-      } else {
-        const urlBusqueda = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(equipo.strSearch)}`;
-        const resBusqueda = await axios.get(urlBusqueda);
-        equipoEncontrado = resBusqueda.data?.teams?.find(t => t.strSport === 'Soccer');
-      }
+      const urlBusqueda = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(equipo.strSearch)}`;
+      const resBusqueda = await axios.get(urlBusqueda);
+      const equipoEncontrado = resBusqueda.data?.teams?.find(t => t.strSport === 'Soccer');
       
       if (equipoEncontrado) {
         const urlPartidos = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipoEncontrado.idTeam}`;
@@ -145,12 +135,11 @@ async function cargarProximosPartidosProgresivamente() {
         if (proximosEventos && proximosEventos.length > 0) {
           const ahora = Date.now();
 
-          // 🧠 FILTRO DE SEGURIDAD: Solo aceptamos partidos de fútbol y en el FUTURO
+          // 🧠 FILTRO DE SEGURIDAD: Solo aceptamos partidos cuya hora de inicio sea en el FUTURO
           const eventosRealmenteFuturos = proximosEventos.filter(ev => {
-            if (ev.strSport && ev.strSport !== 'Soccer') return false; // Bloquea si detecta que es Baloncesto u otro
             if (!ev.strTimestamp) return false;
             const fechaEv = new Date(ev.strTimestamp).getTime();
-            return fechaEv > ahora; 
+            return fechaEv > ahora; // Ignora partidos pasados o que ya iniciaron
           });
 
           if (eventosRealmenteFuturos.length > 0) {
@@ -164,15 +153,21 @@ async function cargarProximosPartidosProgresivamente() {
             });
             
             const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
+
+            // 🌟 CORRECCIÓN DE ESCUDOS: Usar Static URL de API-Football para nuestro equipo tracked (más fiable)
+            // Manejar ID array para Inter Miami [9723, 8984]. Usar el primero (9723) como principal para el logo.
+            const favIdFootballForLogo = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
+            const trackedTeamLogoUrl = `https://media.api-sports.io/football/teams/${favIdFootballForLogo}.png`;
             
             listaTemporal.push({
               id: fixtureFutu.idEvent,
-              equipoTrackedId: equipo.idFootball,
+              equipoTrackedId: equipo.idFootball, // Mantener formato original para filtrado
               local: fixtureFutu.strHomeTeam,
-              // 🌟 CORRECCIÓN DE ESCUDO: Forzamos el uso del escudo del perfil principal del equipo para evitar escudos incorrectos del evento
-              logoLocal: esLocal ? equipoEncontrado.strTeamBadge : (fixtureFutu.strHomeTeamBadge || null),
+              // Usar static URL si nuestro equipo es Local, sino intentar TheSportsDB Badge (oponente)
+              logoLocal: esLocal ? trackedTeamLogoUrl : (fixtureFutu.strHomeTeamBadge || null),
               visitante: fixtureFutu.strAwayTeam,
-              logoVisitante: !esLocal ? equipoEncontrado.strTeamBadge : (fixtureFutu.strAwayTeamBadge || null),
+              // Usar static URL si nuestro equipo es Visitante, sino intentar TheSportsDB Badge (oponente)
+              logoVisitante: !esLocal ? trackedTeamLogoUrl : (fixtureFutu.strAwayTeamBadge || null),
               golesLocal: 0, 
               golesVisitante: 0,
               minuto: fechaFormateada,
@@ -181,7 +176,7 @@ async function cargarProximosPartidosProgresivamente() {
               anotadores: [] 
             });
           } else {
-             throw new Error("El partido ya ocurrió o no es de fútbol"); 
+             throw new Error("El partido ya ocurrió o está en curso"); 
           }
         } else {
            throw new Error("Agenda vacía"); 
@@ -190,10 +185,13 @@ async function cargarProximosPartidosProgresivamente() {
          throw new Error("Equipo no encontrado"); 
       }
     } catch (err) {
-      const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${equipo.idFootball}.png`;
+      // 🌟 CORRECCIÓN FALLBACK URL: Manejar ID array para Inter Miami
+      const favIdFootballFallback = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
+      const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${favIdFootballFallback}.png`;
+
       listaTemporal.push({
-        id: `tbd-${equipo.idFootball}`,
-        equipoTrackedId: equipo.idFootball, 
+        id: `tbd-${favIdFootballFallback}`,
+        equipoTrackedId: equipo.idFootball, // Mantener formato original
         local: equipo.nombre, 
         logoLocal: urlEscudoRespaldo,
         visitante: 'Rival por definir', 
@@ -308,7 +306,6 @@ buscarPartidosEnVivo();
 setTimeout(cargarProximosPartidosProgresivamente, 2000); 
 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
-// Aseguramos que los próximos partidos se refresquen cada 30 min
 setInterval(cargarProximosPartidosProgresivamente, 30 * 60 * 1000); 
 
 io.on('connection', (socket) => {
