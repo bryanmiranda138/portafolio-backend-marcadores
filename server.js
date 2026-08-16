@@ -23,7 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
-  { nombre: 'Inter Miami', idFootball: 9723, strSearch: 'Inter Miami' },
+  { nombre: 'Inter Miami',    idFootball: 8984, strSearch: 'Inter Miami' },
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -31,7 +31,17 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
 ];
 
-// Consulta en vivo cada 3 minutos
+// 🛡️ EXCLUSIONES CONOCIDAS PARA EVITAR FALSOS POSITIVOS
+const EXCLUSIONES = [
+  'new england',            // Evita New England Revolution (confundido con England)
+  'barcelona sc',           // Evita Barcelona SC de Ecuador (confundido con FC Barcelona)
+  'barcelona de guayaquil',
+  'liverpool montevideo',   // Evita Liverpool de Uruguay
+  'river plate montevideo',
+  'real madrid b',
+  'barcelona b'
+];
+
 const INTERVALO_CONSULTA = 3 * 60 * 1000; 
 
 let cacheProximosPartidos = [];
@@ -71,6 +81,36 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
+// 🧠 FUNCIÓN AUXILIAR DE VALIDACIÓN ESTRICTA
+function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
+  if (!nombreEquipoAPI) return null;
+  const nombreNorm = nombreEquipoAPI.toLowerCase().trim();
+
+  // 1. Si el equipo coincide con alguna exclusión, se descarta de inmediato
+  if (EXCLUSIONES.some(ex => nombreNorm.includes(ex))) {
+    return null;
+  }
+
+  // 2. Comprobación estricta con palabras completas
+  for (const fav of EQUIPOS_FAVORITOS) {
+    const searchNorm = fav.strSearch.toLowerCase().trim();
+    const nombreFavNorm = fav.nombre.toLowerCase().trim();
+
+    // Coincidencia exacta
+    if (nombreNorm === searchNorm || nombreNorm === nombreFavNorm) {
+      return fav;
+    }
+
+    // Coincidencia por límite de palabra (\b) para no confundir subpalabras
+    const regex = new RegExp(`\\b${searchNorm}\\b`, 'i');
+    if (regex.test(nombreNorm)) {
+      return fav;
+    }
+  }
+
+  return null;
+}
+
 // 1️⃣ API #1: TheSportsDB (Próximos Partidos)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
@@ -93,7 +133,6 @@ async function cargarProximosPartidosProgresivamente() {
         if (proximosEventos && proximosEventos.length > 0) {
           const fixtureFutu = proximosEventos[0];
           
-          // 🇸🇻 Convertimos la fecha UTC a Hora de El Salvador (UTC-6)
           const fechaUTC = new Date(fixtureFutu.strTimestamp);
           const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
           const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
@@ -148,7 +187,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos En Vivo con Búsqueda Dinámica por TEXTO)
+// 2️⃣ API #2: API-Football (Partidos En Vivo con Filtro Estricto de Exclusiones)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -159,7 +198,7 @@ async function buscarPartidosEnVivo() {
 
     const errores = responseLive.data?.errors;
     if (errores && Object.keys(errores).length > 0) {
-      console.error('⚠️ API-Football devolvió un error:', JSON.stringify(errores));
+      console.error('⚠️ API-Football devolvió un mensaje/error:', JSON.stringify(errores));
       return;
     }
 
@@ -169,19 +208,16 @@ async function buscarPartidosEnVivo() {
     partidosEnVivoCache = []; 
 
     partidosLiveCrudos.forEach(fixture => {
-      // 1. Extraemos los nombres de los equipos que están jugando en minúsculas
-      const homeName = fixture.teams.home.name.toLowerCase();
-      const awayName = fixture.teams.away.name.toLowerCase();
+      const homeName = fixture.teams.home.name;
+      const awayName = fixture.teams.away.name;
 
-      // 🧠 2. MAGIA SENIOR: Buscamos si el nombre contiene nuestra palabra clave (ej. "inter miami")
-      const equipoFavoritoEncontrado = EQUIPOS_FAVORITOS.find(e => {
-        const terminoDeBusqueda = e.strSearch.toLowerCase();
-        return homeName.includes(terminoDeBusqueda) || awayName.includes(terminoDeBusqueda);
-      });
+      // Evaluamos con la función estricta de exclusión y límites de palabra
+      const favHome = obtenerFavoritoSiCoincide(homeName);
+      const favAway = obtenerFavoritoSiCoincide(awayName);
+      const equipoFavoritoEncontrado = favHome || favAway;
 
-      // Si hubo coincidencia de texto, lo procesamos:
       if (equipoFavoritoEncontrado) {
-        console.log(`⚽ ¡EN VIVO ENCONTRADO POR NOMBRE! ${fixture.teams.home.name} vs ${fixture.teams.away.name}`);
+        console.log(`⚽ ¡EN VIVO CONFIRMADO! ${homeName} vs ${awayName}`);
         
         const statusCorto = fixture.fixture.status.short;
         const elapsed = fixture.fixture.status.elapsed;
@@ -204,7 +240,6 @@ async function buscarPartidosEnVivo() {
 
         partidosEnVivoCache.push({
           id: fixture.fixture.id,
-          // 3. Asignamos nuestro ID interno para que el "Efecto Espejo" lo borre de Próximos Partidos
           equipoIdFiltro1: equipoFavoritoEncontrado.idFootball, 
           equipoIdFiltro2: equipoFavoritoEncontrado.idFootball,
           local: fixture.teams.home.name,
@@ -222,7 +257,7 @@ async function buscarPartidosEnVivo() {
     });
 
     if (partidosEnVivoCache.length === 0) {
-      console.log('ℹ️ Ningún equipo favorito detectado en vivo mediante búsqueda de texto.');
+      console.log('ℹ️ Ningún equipo favorito detectado en vivo.');
     }
 
     emitirDatosAlFrontend();
@@ -232,10 +267,9 @@ async function buscarPartidosEnVivo() {
 }
 
 // 🚀 ARRANQUE INMEDIATO
-buscarPartidosEnVivo(); // Executar de inmediato al arrancar el servidor
+buscarPartidosEnVivo(); 
 setTimeout(cargarProximosPartidosProgresivamente, 2000); 
 
-// Programar la búsqueda recurrente en vivo
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
 
 io.on('connection', (socket) => {
