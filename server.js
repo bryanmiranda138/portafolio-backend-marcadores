@@ -89,9 +89,16 @@ async function cargarProximosPartidosProgresivamente() {
 
         if (proximosEventos && proximosEventos.length > 0) {
           const fixtureFutu = proximosEventos[0];
-          const fechaReal = new Date(fixtureFutu.strTimestamp);
-          const fechaFormateada = fechaReal.toLocaleDateString('es-ES', { 
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
+          // 1. Obtenemos la fecha en UTC desde TheSportsDB
+          const fechaUTC = new Date(fixtureFutu.strTimestamp);
+          
+          // 2. 🇸🇻 Convertimos a Hora de El Salvador (UTC-6) matemáticamente
+          const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
+
+          // 3. Formateamos la fecha a texto amigable
+          const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
+            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+            timeZone: 'UTC' // Forzamos UTC aquí para que Node.js no aplique otra zona horaria encima de nuestra resta
           });
           
           // Magia: Validamos de quién es el escudo usando el ID para asignarlo correctamente al Local y Visitante
