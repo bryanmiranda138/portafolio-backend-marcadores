@@ -111,7 +111,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   return null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Próximos Partidos)
+// 1️⃣ API #1: TheSportsDB (Próximos Partidos con Filtro de Tiempo Futuro)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -131,31 +131,44 @@ async function cargarProximosPartidosProgresivamente() {
         const proximosEventos = resPartidos.data?.events;
 
         if (proximosEventos && proximosEventos.length > 0) {
-          const fixtureFutu = proximosEventos[0];
-          
-          const fechaUTC = new Date(fixtureFutu.strTimestamp);
-          const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
-          const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-            timeZone: 'UTC'
+          const ahora = Date.now();
+
+          // 🧠 FILTRO DE SEGURIDAD: Solo aceptamos partidos cuya hora de inicio sea en el FUTURO
+          const eventosRealmenteFuturos = proximosEventos.filter(ev => {
+            if (!ev.strTimestamp) return false;
+            const fechaEv = new Date(ev.strTimestamp).getTime();
+            return fechaEv > ahora; // Ignora partidos pasados o que ya iniciaron
           });
-          
-          const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
-          
-          listaTemporal.push({
-            id: fixtureFutu.idEvent,
-            equipoTrackedId: equipo.idFootball,
-            local: fixtureFutu.strHomeTeam,
-            logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
-            visitante: fixtureFutu.strAwayTeam,
-            logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
-            golesLocal: 0, 
-            golesVisitante: 0,
-            minuto: fechaFormateada,
-            estado: 'PROXIMO',
-            esEnVivo: false,
-            anotadores: [] 
-          });
+
+          if (eventosRealmenteFuturos.length > 0) {
+            const fixtureFutu = eventosRealmenteFuturos[0];
+            
+            const fechaUTC = new Date(fixtureFutu.strTimestamp);
+            const fechaElSalvador = new Date(fechaUTC.getTime() - (6 * 60 * 60 * 1000));
+            const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
+              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+              timeZone: 'UTC'
+            });
+            
+            const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
+            
+            listaTemporal.push({
+              id: fixtureFutu.idEvent,
+              equipoTrackedId: equipo.idFootball,
+              local: fixtureFutu.strHomeTeam,
+              logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
+              visitante: fixtureFutu.strAwayTeam,
+              logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
+              golesLocal: 0, 
+              golesVisitante: 0,
+              minuto: fechaFormateada,
+              estado: 'PROXIMO',
+              esEnVivo: false,
+              anotadores: [] 
+            });
+          } else {
+             throw new Error("El partido ya ocurrió o está en curso"); 
+          }
         } else {
            throw new Error("Agenda vacía"); 
         }
