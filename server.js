@@ -14,21 +14,21 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 📌 TUS EQUIPOS FAVORITOS (Con idSportsDB y Logo Oficial Blindado)
+// 📌 TUS EQUIPOS FAVORITOS (Sin URLs forzadas, usando los badges nativos de TheSportsDB/API-Football)
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',   idFootball: 529,  idSportsDB: 133739, strSearch: 'Barcelona', logo: 'https://media.api-sports.io/football/teams/529.png' },
-  { nombre: 'Real Madrid',    idFootball: 541,  idSportsDB: 133604, strSearch: 'Real Madrid', logo: 'https://media.api-sports.io/football/teams/541.png' },
-  { nombre: 'Boca Juniors',   idFootball: 451,  idSportsDB: 135205, strSearch: 'Boca Juniors', logo: 'https://media.api-sports.io/football/teams/451.png' },
-  { nombre: 'River Plate',    idFootball: 435,  idSportsDB: 135211, strSearch: 'River Plate', logo: 'https://media.api-sports.io/football/teams/435.png' },
-  { nombre: 'Liverpool',      idFootball: 40,   idSportsDB: 133602, strSearch: 'Liverpool', logo: 'https://media.api-sports.io/football/teams/40.png' },
-  { nombre: 'Manchester City',idFootball: 50,   idSportsDB: 133613, strSearch: 'Manchester City', logo: 'https://media.api-sports.io/football/teams/50.png' },
-  { nombre: 'C.D. Águila',    idFootball: 2307, idSportsDB: 140411, strSearch: 'Aguila', logo: 'https://media.api-sports.io/football/teams/2307.png' }, 
-  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], idSportsDB: 140989, strSearch: 'Inter Miami', logo: 'https://media.api-sports.io/football/teams/9723.png' },
-  { nombre: 'Argentina',      idFootball: 26,   idSportsDB: 135275, strSearch: 'Argentina', logo: 'https://media.api-sports.io/football/teams/26.png' },
-  { nombre: 'Brasil',         idFootball: 6,    idSportsDB: 135276, strSearch: 'Brazil', logo: 'https://media.api-sports.io/football/teams/6.png' },
-  { nombre: 'Inglaterra',     idFootball: 10,   idSportsDB: 133702, strSearch: 'England', logo: 'https://media.api-sports.io/football/teams/10.png' },
-  { nombre: 'Francia',        idFootball: 2,    idSportsDB: 133714, strSearch: 'France', logo: 'https://media.api-sports.io/football/teams/2.png' },
-  { nombre: 'España',         idFootball: 9,    idSportsDB: 133738, strSearch: 'Spain', logo: 'https://media.api-sports.io/football/teams/9.png' }
+  { nombre: 'FC Barcelona',   idFootball: 529,  idSportsDB: 133739, strSearch: 'Barcelona' },
+  { nombre: 'Real Madrid',    idFootball: 541,  idSportsDB: 133604, strSearch: 'Real Madrid' },
+  { nombre: 'Boca Juniors',   idFootball: 451,  idSportsDB: 135205, strSearch: 'Boca Juniors' },
+  { nombre: 'River Plate',    idFootball: 435,  idSportsDB: 135211, strSearch: 'River Plate' },
+  { nombre: 'Liverpool',      idFootball: 40,   idSportsDB: 133602, strSearch: 'Liverpool' },
+  { nombre: 'Manchester City',idFootball: 50,   idSportsDB: 133613, strSearch: 'Manchester City' },
+  { nombre: 'C.D. Águila',    idFootball: 2307, idSportsDB: 140411, strSearch: 'Aguila' }, 
+  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], idSportsDB: 140989, strSearch: 'Inter Miami' },
+  { nombre: 'Argentina',      idFootball: 26,   idSportsDB: 135275, strSearch: 'Argentina' },
+  { nombre: 'Brasil',         idFootball: 6,    idSportsDB: 135276, strSearch: 'Brazil' },
+  { nombre: 'Inglaterra',     idFootball: 10,   idSportsDB: 133702, strSearch: 'England' },
+  { nombre: 'Francia',        idFootball: 2,    idSportsDB: 133714, strSearch: 'France' },
+  { nombre: 'España',         idFootball: 9,    idSportsDB: 133738, strSearch: 'Spain' }
 ];
 
 // 🛡️ EXCLUSIONES CONOCIDAS PARA EVITAR FALSOS POSITIVOS
@@ -108,7 +108,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI, idEquipoAPI = null) {
   return null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Consulta directa por idSportsDB con Escudo Garantizado)
+// 1️⃣ API #1: TheSportsDB (Escudos dinámicos originales)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -140,16 +140,15 @@ async function cargarProximosPartidosProgresivamente() {
           const fechaFormateada = fechaElSalvador.toLocaleDateString('es-ES', { 
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC'
           });
-          
-          const esLocal = fixtureFutu.idHomeTeam.toString() === equipo.idSportsDB.toString();
 
           listaTemporal.push({
             id: fixtureFutu.idEvent,
             equipoTrackedId: mainFavId,
             local: fixtureFutu.strHomeTeam,
-            logoLocal: esLocal ? equipo.logo : (fixtureFutu.strHomeTeamBadge || null),
+            // 🛡️ Restaurados los escudos transparentes originales de TheSportsDB
+            logoLocal: fixtureFutu.strHomeTeamBadge || null,
             visitante: fixtureFutu.strAwayTeam,
-            logoVisitante: !esLocal ? equipo.logo : (fixtureFutu.strAwayTeamBadge || null),
+            logoVisitante: fixtureFutu.strAwayTeamBadge || null,
             golesLocal: 0, 
             golesVisitante: 0,
             minuto: fechaFormateada,
@@ -165,11 +164,13 @@ async function cargarProximosPartidosProgresivamente() {
          throw new Error("Agenda vacía"); 
       }
     } catch (err) {
+      // 🛡️ Fallback: Solo si no hay partido, usamos la URL genérica para la tarjeta de vacaciones
+      const escudoRespaldo = `https://media.api-sports.io/football/teams/${mainFavId}.png`;
       listaTemporal.push({
         id: `tbd-${mainFavId}`,
         equipoTrackedId: mainFavId, 
         local: equipo.nombre, 
-        logoLocal: equipo.logo,
+        logoLocal: escudoRespaldo,
         visitante: 'Rival por definir', 
         logoVisitante: null,
         golesLocal: 0,
@@ -188,7 +189,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos En Vivo con Filtros)
+// 2️⃣ API #2: API-Football (Partidos En Vivo con logos nativos)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -256,9 +257,10 @@ async function buscarPartidosEnVivo() {
           equipoIdFiltro1: mainFavId, 
           equipoIdFiltro2: mainFavId,
           local: fixture.teams.home.name,
-          logoLocal: favHome ? favHome.logo : fixture.teams.home.logo,
+          // 🛡️ Extraemos logos nativos directos de la API
+          logoLocal: fixture.teams.home.logo,
           visitante: fixture.teams.away.name,
-          logoVisitante: favAway ? favAway.logo : fixture.teams.away.logo,
+          logoVisitante: fixture.teams.away.logo,
           golesLocal: fixture.goals.home ?? 0,
           golesVisitante: fixture.goals.away ?? 0,
           minuto: tiempoAmostrar,
