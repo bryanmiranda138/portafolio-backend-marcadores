@@ -39,7 +39,9 @@ const EXCLUSIONES = [
   'liverpool montevideo',   // Evita Liverpool de Uruguay
   'river plate montevideo',
   'real madrid b',
-  'barcelona b'
+  'barcelona b',
+  'walsham-le-willows',     // 👈 Evita falso positivo con Walsham-le-Willows
+  'walsham le willows'
 ];
 
 const INTERVALO_CONSULTA = 3 * 60 * 1000; 
