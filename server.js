@@ -23,7 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' }, 
-  { nombre: 'Inter Miami CF', idFootball: [9723, 8984], strSearch: 'Inter Miami' },
+  { nombre: 'Inter Miami',    idFootball: 8984, strSearch: 'Inter Miami' },
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -39,9 +39,7 @@ const EXCLUSIONES = [
   'liverpool montevideo',   // Evita Liverpool de Uruguay
   'river plate montevideo',
   'real madrid b',
-  'barcelona b',
-  'walsham-le-willows',     // 👈 Evita falso positivo con Walsham-le-Willows
-  'walsham le willows'
+  'barcelona b'
 ];
 
 const INTERVALO_CONSULTA = 3 * 60 * 1000; 
@@ -153,21 +151,14 @@ async function cargarProximosPartidosProgresivamente() {
             });
             
             const esLocal = fixtureFutu.idHomeTeam === equipoEncontrado.idTeam;
-
-            // 🌟 CORRECCIÓN DE ESCUDOS: Usar Static URL de API-Football para nuestro equipo tracked (más fiable)
-            // Manejar ID array para Inter Miami [9723, 8984]. Usar el primero (9723) como principal para el logo.
-            const favIdFootballForLogo = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
-            const trackedTeamLogoUrl = `https://media.api-sports.io/football/teams/${favIdFootballForLogo}.png`;
             
             listaTemporal.push({
               id: fixtureFutu.idEvent,
-              equipoTrackedId: equipo.idFootball, // Mantener formato original para filtrado
+              equipoTrackedId: equipo.idFootball,
               local: fixtureFutu.strHomeTeam,
-              // Usar static URL si nuestro equipo es Local, sino intentar TheSportsDB Badge (oponente)
-              logoLocal: esLocal ? trackedTeamLogoUrl : (fixtureFutu.strHomeTeamBadge || null),
+              logoLocal: fixtureFutu.strHomeTeamBadge || (esLocal ? equipoEncontrado.strTeamBadge : null),
               visitante: fixtureFutu.strAwayTeam,
-              // Usar static URL si nuestro equipo es Visitante, sino intentar TheSportsDB Badge (oponente)
-              logoVisitante: !esLocal ? trackedTeamLogoUrl : (fixtureFutu.strAwayTeamBadge || null),
+              logoVisitante: fixtureFutu.strAwayTeamBadge || (!esLocal ? equipoEncontrado.strTeamBadge : null),
               golesLocal: 0, 
               golesVisitante: 0,
               minuto: fechaFormateada,
@@ -185,13 +176,10 @@ async function cargarProximosPartidosProgresivamente() {
          throw new Error("Equipo no encontrado"); 
       }
     } catch (err) {
-      // 🌟 CORRECCIÓN FALLBACK URL: Manejar ID array para Inter Miami
-      const favIdFootballFallback = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
-      const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${favIdFootballFallback}.png`;
-
+      const urlEscudoRespaldo = `https://media.api-sports.io/football/teams/${equipo.idFootball}.png`;
       listaTemporal.push({
-        id: `tbd-${favIdFootballFallback}`,
-        equipoTrackedId: equipo.idFootball, // Mantener formato original
+        id: `tbd-${equipo.idFootball}`,
+        equipoTrackedId: equipo.idFootball, 
         local: equipo.nombre, 
         logoLocal: urlEscudoRespaldo,
         visitante: 'Rival por definir', 
@@ -306,7 +294,6 @@ buscarPartidosEnVivo();
 setTimeout(cargarProximosPartidosProgresivamente, 2000); 
 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA); 
-setInterval(cargarProximosPartidosProgresivamente, 30 * 60 * 1000); 
 
 io.on('connection', (socket) => {
   emitirDatosAlFrontend(socket);
