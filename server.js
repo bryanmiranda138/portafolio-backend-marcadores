@@ -31,8 +31,8 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
 ];
 
-// Consulta en vivo cada 3 minutos
-const INTERVALO_CONSULTA = 3 * 60 * 1000; 
+// Consulta en vivo cada 1 minuto
+const INTERVALO_CONSULTA = 1 * 60 * 1000; 
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
