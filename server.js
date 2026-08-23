@@ -23,7 +23,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' },
-  // 🌟 INTER MIAMI CON LOGO DE RESPALDO DEFINIDO
+  // 🌟 INTER MIAMI CON LOGO DE RESPALDO Y DOBLE ID
   { 
     nombre: 'Inter Miami',    
     idFootball: [9723, 8984], 
@@ -68,7 +68,7 @@ function extraerEscudoTheSportsDB(objeto) {
          null;
 }
 
-// 🧠 BÚSQUEDA COMPARANDO NOMBRES REALES
+// 🧠 BÚSQUEDA COMPARANDO NOMBRES REALES PARA PROXIMOS PARTIDOS
 function encontrarEquipoSportsDB(teamsArray, equipoFav) {
   if (!teamsArray || !Array.isArray(teamsArray) || teamsArray.length === 0) return null;
 
@@ -121,29 +121,31 @@ function emitirDatosAlFrontend(socketEspecifico = null) {
   }
 }
 
+// 🧠 FUNCIÓN AUXILIAR #1: Búsqueda por Texto (Respaldo)
 function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   if (!nombreEquipoAPI) return null;
   const nombreNorm = nombreEquipoAPI.toLowerCase().trim();
-
-  if (EXCLUSIONES.some(ex => nombreNorm.includes(ex))) {
-    return null;
-  }
+  if (EXCLUSIONES.some(ex => nombreNorm.includes(ex))) return null;
 
   for (const fav of EQUIPOS_FAVORITOS) {
     const searchNorm = fav.strSearch.toLowerCase().trim();
     const nombreFavNorm = fav.nombre.toLowerCase().trim();
-
-    if (nombreNorm === searchNorm || nombreNorm === nombreFavNorm) {
-      return fav;
-    }
-
+    if (nombreNorm === searchNorm || nombreNorm === nombreFavNorm) return fav;
     const regex = new RegExp(`\\b${searchNorm}\\b`, 'i');
-    if (regex.test(nombreNorm)) {
-      return fav;
-    }
+    if (regex.test(nombreNorm)) return fav;
   }
-
   return null;
+}
+
+// 🧠 FUNCIÓN AUXILIAR #2 (NUEVA): Búsqueda Infallible por ID numérico de API-Football
+function obtenerFavoritoPorIdAPI(idEquipoAPI) {
+  if (!idEquipoAPI) return null;
+  return EQUIPOS_FAVORITOS.find(fav => {
+    if (Array.isArray(fav.idFootball)) {
+      return fav.idFootball.includes(idEquipoAPI);
+    }
+    return fav.idFootball === idEquipoAPI;
+  }) || null;
 }
 
 // 1️⃣ API #1: TheSportsDB (Próximos Partidos)
@@ -264,7 +266,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: API-Football (Partidos en vivo COMPLETAMENTE BLINDADO)
+// 2️⃣ API #2: API-Football (Partidos en vivo con DOBLE BLINDAJE)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en API-Football...');
@@ -280,21 +282,25 @@ async function buscarPartidosEnVivo() {
     }
 
     const partidosLiveCrudos = responseLive.data?.response || [];
-    console.log(`🌐 La API detectó ${partidosLiveCrudos.length} partidos jugándose en el mundo ahora mismo.`);
+    console.log(`🌐 API-Football detectó ${partidosLiveCrudos.length} partidos jugándose en el mundo.`);
     
     let nuevosEnVivo = [];
 
     partidosLiveCrudos.forEach(fixture => {
-      // 🛡️ BUCLE PROTEGIDO: Un partido corrupto no detendrá el resto
       try {
+        const homeId = fixture.teams?.home?.id;
+        const awayId = fixture.teams?.away?.id;
         const homeName = fixture.teams?.home?.name || '';
         const awayName = fixture.teams?.away?.name || '';
 
-        const favHome = obtenerFavoritoSiCoincide(homeName);
-        const favAway = obtenerFavoritoSiCoincide(awayName);
+        // 🌟 DOBLE BLINDAJE: Primero verificamos si coincide el ID exacto, si no, intentamos con el nombre.
+        const favHome = obtenerFavoritoPorIdAPI(homeId) || obtenerFavoritoSiCoincide(homeName);
+        const favAway = obtenerFavoritoPorIdAPI(awayId) || obtenerFavoritoSiCoincide(awayName);
         const equipoFavoritoEncontrado = favHome || favAway;
 
         if (equipoFavoritoEncontrado) {
+          console.log(`✅ ¡PARTIDO EN VIVO ATRAPADO! -> ${homeName} vs ${awayName}`);
+
           const statusCorto = fixture.fixture?.status?.short || '';
           const elapsed = fixture.fixture?.status?.elapsed || 0;
           const extra = fixture.fixture?.status?.extra;
@@ -312,7 +318,6 @@ async function buscarPartidosEnVivo() {
 
           const eventos = fixture.events || [];
 
-          // 🧠 1. FILTRO DE GOLES REALES CON ENCADENAMIENTO OPCIONAL (?.)
           const anotadoresData = eventos
             .filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty')
             .map(e => ({
@@ -322,7 +327,6 @@ async function buscarPartidosEnVivo() {
               tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol'
             }));
 
-          // 🟨 🟥 2. CAPTURA DE TARJETAS PROTEGIDA CONTRA NULOS
           const tarjetasData = eventos
             .filter(e => e.type === 'Card')
             .map(e => ({
@@ -358,7 +362,6 @@ async function buscarPartidosEnVivo() {
       }
     });
 
-    // Solo sobreescribimos el caché si el bucle terminó sin romper la aplicación
     partidosEnVivoCache = nuevosEnVivo;
     emitirDatosAlFrontend();
   } catch (error) {
