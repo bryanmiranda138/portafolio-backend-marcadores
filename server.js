@@ -11,34 +11,29 @@ const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Multi-API / RapidAPI) funcionando.'));
+app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (Football-Data) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 🚀 Endpoint de Rayos X (Actualizado para RapidAPI)
+// 🚀 Endpoint de Rayos X (Para Football-Data)
 app.get('/debug-live', async (req, res) => {
   try {
-    const responseLive = await axios.get('https://api-football-v1.p.rapidapi.com/v3/fixtures?live=all', {
-      headers: { 
-        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-        'x-rapidapi-host': 'api-football-v1.p.rapidapi.com'
-      }
+    const responseLive = await axios.get('https://api.football-data.org/v4/matches?status=IN_PLAY,PAUSED', {
+      headers: { 'X-Auth-Token': process.env.FOOTBALL_DATA_KEY }
     });
     
-    const partidosJugandose = responseLive.data?.response || [];
+    const partidosJugandose = responseLive.data?.matches || [];
     const resumenEnVivo = partidosJugandose.map(p => ({
-      partido: `${p.teams.home.name} vs ${p.teams.away.name}`,
-      estado: p.fixture.status.short,
-      idLocal: p.teams.home.id,
-      idVisitante: p.teams.away.id
+      partido: `${p.homeTeam.name} vs ${p.awayTeam.name}`,
+      estado: p.status
     }));
 
     res.json({
-      mensaje: "✅ Conexión con RapidAPI exitosa",
+      mensaje: "✅ Conexión con Football-Data exitosa",
       total_jugandose_en_el_mundo: partidosJugandose.length,
       resumen_partidos: resumenEnVivo
     });
   } catch (error) {
-    res.status(500).json({ error: error.message, pista: "Verifica que RAPIDAPI_KEY sea correcto" });
+    res.status(500).json({ error: error.message, pista: "Verifica que FOOTBALL_DATA_KEY sea correcto" });
   }
 });
 
@@ -51,12 +46,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
   { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' },
-  { 
-    nombre: 'Inter Miami',    
-    idFootball: [9723, 8984], 
-    strSearch: 'Inter Miami', 
-    logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' 
-  },
+  { nombre: 'Inter Miami',    idFootball: [9723, 8984], strSearch: 'Inter Miami', logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' },
   { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
   { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
   { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
@@ -69,8 +59,8 @@ const EXCLUSIONES = [
   'liverpool montevideo', 'river plate montevideo', 'real madrid b', 'barcelona b'
 ];
 
-// ⏱️ EL SECRETO ANTI-BANEO: 15 MINUTOS (Gasta solo 96 peticiones al día de las 100 disponibles)
-const INTERVALO_CONSULTA = 15 * 60 * 1000;
+// ⏱️ TEMPORIZADOR RAPIDO: Football-Data permite 10 peticiones POR MINUTO. Cada 3 minutos es súper seguro.
+const INTERVALO_CONSULTA = 3 * 60 * 1000;
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
@@ -143,16 +133,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   return null;
 }
 
-function obtenerFavoritoPorIdAPI(idEquipoAPI) {
-  if (!idEquipoAPI) return null;
-  return EQUIPOS_FAVORITOS.find(fav => {
-    const targetId = String(idEquipoAPI);
-    if (Array.isArray(fav.idFootball)) return fav.idFootball.some(id => String(id) === targetId);
-    return String(fav.idFootball) === targetId;
-  }) || null;
-}
-
-// 1️⃣ API #1: TheSportsDB (Próximos Partidos)
+// 1️⃣ API #1: TheSportsDB (Próximos Partidos - Intacto)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -182,7 +163,7 @@ async function cargarProximosPartidosProgresivamente() {
             if (ev.strTimestamp) fechaPartido = new Date(ev.strTimestamp).getTime();
             else if (ev.dateEvent) fechaPartido = new Date(`${ev.dateEvent}T${ev.strTime || '00:00:00'}+00:00`).getTime();
             if (!fechaPartido || isNaN(fechaPartido)) return true;
-            return (fechaPartido + (4 * 60 * 60 * 1000)) > ahora;
+            return (fechaPartido + (2.5 * 60 * 60 * 1000)) > ahora;
           });
 
           if (eventosRealmenteFuturos.length > 0) {
@@ -234,69 +215,70 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: RapidAPI - API-Football (Nueva ruta, 0% baneos)
+// 2️⃣ API #2: Football-Data.org (Nueva API, Cero Baneos)
 async function buscarPartidosEnVivo() {
   try {
-    console.log('🔍 Consultando partidos en vivo vía RapidAPI (Modo Seguro: 15 min)...');
+    console.log('🔍 Consultando partidos en vivo en Football-Data.org...');
 
-    const responseLive = await axios.get('https://api-football-v1.p.rapidapi.com/v3/fixtures?live=all', {
-      headers: { 
-        'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-        'x-rapidapi-host': 'api-football-v1.p.rapidapi.com'
-      }
-    });
-
-    const errores = responseLive.data?.errors;
-    if (errores && Object.keys(errores).length > 0) {
-      console.error('⚠️ RapidAPI devolvió un error:', JSON.stringify(errores));
+    const token = process.env.FOOTBALL_DATA_KEY;
+    if (!token) {
+      console.error('🛑 ERROR: No se ha configurado la variable FOOTBALL_DATA_KEY');
       return;
     }
 
-    const partidosLiveCrudos = responseLive.data?.response || [];
+    const responseLive = await axios.get('https://api.football-data.org/v4/matches?status=IN_PLAY,PAUSED', {
+      headers: { 'X-Auth-Token': token }
+    });
+
+    const partidosLiveCrudos = responseLive.data?.matches || [];
     let nuevosEnVivo = [];
 
-    partidosLiveCrudos.forEach(fixture => {
+    partidosLiveCrudos.forEach(match => {
       try {
-        const homeId = fixture.teams?.home?.id;
-        const awayId = fixture.teams?.away?.id;
-        const homeName = fixture.teams?.home?.name || '';
-        const awayName = fixture.teams?.away?.name || '';
+        const homeName = match.homeTeam?.name || '';
+        const awayName = match.awayTeam?.name || '';
+        const homeShort = match.homeTeam?.shortName || '';
+        const awayShort = match.awayTeam?.shortName || '';
 
-        const favHome = obtenerFavoritoPorIdAPI(homeId) || obtenerFavoritoSiCoincide(homeName);
-        const favAway = obtenerFavoritoPorIdAPI(awayId) || obtenerFavoritoSiCoincide(awayName);
+        // Buscamos por nombre oficial o por nombre corto
+        const favHome = obtenerFavoritoSiCoincide(homeName) || obtenerFavoritoSiCoincide(homeShort);
+        const favAway = obtenerFavoritoSiCoincide(awayName) || obtenerFavoritoSiCoincide(awayShort);
         const equipoFavoritoEncontrado = favHome || favAway;
 
         if (equipoFavoritoEncontrado) {
-          const statusCorto = fixture.fixture?.status?.short || '';
-          const elapsed = fixture.fixture?.status?.elapsed || 0;
-          const extra = fixture.fixture?.status?.extra;
+          // Football-Data devuelve 'PAUSED' para medio tiempo, 'IN_PLAY' para en vivo
+          const statusCorto = match.status === 'PAUSED' ? 'HT' : 'LIVE';
+          let tiempoAmostrar = statusCorto === 'HT' ? 'Medio Tiempo' : 'En Vivo';
 
-          let tiempoAmostrar = ['HT'].includes(statusCorto) ? 'Medio Tiempo' : ['FT', 'AET', 'PEN'].includes(statusCorto) ? 'Finalizado' : extra ? `${elapsed} + ${extra}'` : `${elapsed}'`;
-
-          const eventos = fixture.events || [];
-          const anotadoresData = eventos.filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty')
-            .map(e => ({ equipo: e.team?.name || 'Desconocido', jugador: e.player?.name || 'Desconocido', minuto: e.time?.elapsed || 0, tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol' }));
-
-          const tarjetasData = eventos.filter(e => e.type === 'Card')
-            .map(e => ({ equipo: e.team?.name || 'Desconocido', jugador: e.player?.name || 'Desconocido', minuto: e.time?.elapsed || 0, tipo: (e.detail || '').toLowerCase().includes('yellow') ? 'Amarilla' : 'Roja' }));
+          const golesLocal = match.score?.fullTime?.home ?? 0;
+          const golesVisitante = match.score?.fullTime?.away ?? 0;
 
           const mainFavId = Array.isArray(equipoFavoritoEncontrado.idFootball) ? equipoFavoritoEncontrado.idFootball[0] : equipoFavoritoEncontrado.idFootball;
 
           nuevosEnVivo.push({
-            id: fixture.fixture?.id, equipoIdFiltro1: mainFavId, equipoIdFiltro2: mainFavId,
-            local: fixture.teams?.home?.name || 'Local', logoLocal: fixture.teams?.home?.logo || null,
-            visitante: fixture.teams?.away?.name || 'Visitante', logoVisitante: fixture.teams?.away?.logo || null,
-            golesLocal: fixture.goals?.home ?? 0, golesVisitante: fixture.goals?.away ?? 0,
-            minuto: tiempoAmostrar, estado: statusCorto, esEnVivo: true, anotadores: anotadoresData, tarjetas: tarjetasData
+            id: match.id, 
+            equipoIdFiltro1: mainFavId, 
+            equipoIdFiltro2: mainFavId,
+            local: homeName || 'Local', 
+            logoLocal: match.homeTeam?.crest || null,
+            visitante: awayName || 'Visitante', 
+            logoVisitante: match.awayTeam?.crest || null,
+            golesLocal: golesLocal, 
+            golesVisitante: golesVisitante,
+            minuto: tiempoAmostrar, 
+            estado: statusCorto, 
+            esEnVivo: true, 
+            anotadores: [], // Football-Data gratuito no da detalles de goles
+            tarjetas: []    // Football-Data gratuito no da detalles de tarjetas
           });
         }
-      } catch (errLoop) { console.error('⚠️ Error loop:', errLoop.message); }
+      } catch (errLoop) { console.error('⚠️ Error loop Football-Data:', errLoop.message); }
     });
 
     partidosEnVivoCache = nuevosEnVivo;
     emitirDatosAlFrontend();
   } catch (error) {
-    console.error('❌ Error RapidAPI:', error.message);
+    console.error('❌ Error Football-Data:', error.message);
   }
 }
 
@@ -304,7 +286,7 @@ async function buscarPartidosEnVivo() {
 buscarPartidosEnVivo();
 setTimeout(cargarProximosPartidosProgresivamente, 2000);
 
-// ¡PROTECCIÓN ANTI-BANEO ACTIVADA! Consulta de API-Football cada 15 min.
+// ¡Podemos volver a consultar cada 3 minutos sin miedo!
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA);
 setInterval(cargarProximosPartidosProgresivamente, 30 * 60 * 1000);
 
