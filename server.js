@@ -56,7 +56,7 @@ let partidosEnVivoCache = [];
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 🖼️ EVALUACIÓN DE VARIOS NOMBRES DE CAMPOS PARA EL ESCUDO
+// 🖼️ 1. EVALUACIÓN DE VARIOS NOMBRES DE CAMPOS PARA EL ESCUDO
 function extraerEscudoTheSportsDB(objeto) {
   if (!objeto) return null;
   return objeto.strTeamBadge || 
@@ -68,13 +68,14 @@ function extraerEscudoTheSportsDB(objeto) {
          null;
 }
 
-// 🧠 BÚSQUEDA COMPARANDO NOMBRES REALES PARA PROXIMOS PARTIDOS
+// 🧠 2. BÚSQUEDA COMPARANDO NOMBRES REALES PARA PROXIMOS PARTIDOS
 function encontrarEquipoSportsDB(teamsArray, equipoFav) {
   if (!teamsArray || !Array.isArray(teamsArray) || teamsArray.length === 0) return null;
 
   const searchNorm = equipoFav.strSearch.toLowerCase().trim();
   const nombreFavNorm = equipoFav.nombre.toLowerCase().trim();
 
+  // Búsqueda inteligente que no toma el [0] ciegamente
   const coincidenciaExacta = teamsArray.find(t => {
     if (t.strSport && t.strSport !== 'Soccer') return false;
     const strTeam = (t.strTeam || '').toLowerCase().trim();
@@ -137,7 +138,7 @@ function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   return null;
 }
 
-// 🧠 FUNCIÓN AUXILIAR #2 (NUEVA): Búsqueda Infallible por ID numérico de API-Football
+// 🧠 FUNCIÓN AUXILIAR #2: Búsqueda Infalible por ID numérico de API-Football
 function obtenerFavoritoPorIdAPI(idEquipoAPI) {
   if (!idEquipoAPI) return null;
   return EQUIPOS_FAVORITOS.find(fav => {
@@ -148,7 +149,7 @@ function obtenerFavoritoPorIdAPI(idEquipoAPI) {
   }) || null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Próximos Partidos)
+// 1️⃣ API #1: TheSportsDB (Próximos Partidos Completamente Integrado)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -242,6 +243,7 @@ async function cargarProximosPartidosProgresivamente() {
         throw new Error("Equipo no encontrado");
       }
     } catch (err) {
+      // Usar logo de respaldo garantizado si TheSportsDB falla
       const urlEscudoRespaldo = equipo.logoRespaldo || `https://media.api-sports.io/football/teams/${mainFavId}.png`;
       listaTemporal.push({
         id: `tbd-${mainFavId}`,
@@ -266,93 +268,92 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: SPORTMONKS (Partidos en vivo adaptado a API v3)
+// 2️⃣ API #2: API-Football (Partidos en vivo con DOBLE BLINDAJE ANTI-CRASH)
 async function buscarPartidosEnVivo() {
   try {
-    console.log('🔍 Consultando partidos en vivo en Sportmonks...');
+    console.log('🔍 Consultando partidos en vivo en API-Football...');
 
-    // Sportmonks v3 requiere que pidamos explícitamente los datos extra (participantes, eventos, estado y marcadores)
-    const url = `https://api.sportmonks.com/v3/football/livescores/now?api_token=${process.env.SPORTMONKS_API_TOKEN}&include=participants;events.type;state;scores`;
-    
-    const responseLive = await axios.get(url);
-    const partidosLiveCrudos = responseLive.data?.data || [];
-    
-    console.log(`🌐 Sportmonks detectó ${partidosLiveCrudos.length} partidos jugándose en el mundo.`);
+    const responseLive = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
+      headers: { 'x-apisports-key': process.env.FOOTBALL_API_KEY }
+    });
+
+    const errores = responseLive.data?.errors;
+    if (errores && Object.keys(errores).length > 0) {
+      console.error('⚠️ API-Football devolvió un mensaje/error:', JSON.stringify(errores));
+      return;
+    }
+
+    const partidosLiveCrudos = responseLive.data?.response || [];
+    console.log(`🌐 API-Football detectó ${partidosLiveCrudos.length} partidos jugándose en el mundo.`);
     
     let nuevosEnVivo = [];
 
     partidosLiveCrudos.forEach(fixture => {
+      // 🛡️ BUCLE PROTEGIDO INTERNAMENTE
       try {
-        // En Sportmonks, los equipos vienen en el arreglo "participants"
-        const homeTeam = fixture.participants?.find(p => p.meta?.location === 'home');
-        const awayTeam = fixture.participants?.find(p => p.meta?.location === 'away');
+        const homeId = fixture.teams?.home?.id;
+        const awayId = fixture.teams?.away?.id;
+        const homeName = fixture.teams?.home?.name || '';
+        const awayName = fixture.teams?.away?.name || '';
 
-        const homeName = homeTeam?.name || '';
-        const awayName = awayTeam?.name || '';
-
-        // Solo dependemos de la búsqueda por nombre porque los IDs de Sportmonks son distintos
-        const favHome = obtenerFavoritoSiCoincide(homeName);
-        const favAway = obtenerFavoritoSiCoincide(awayName);
+        // BÚSQUEDA ROBUSTA: Primero por ID (infalible), luego por Nombre (respaldo)
+        const favHome = obtenerFavoritoPorIdAPI(homeId) || obtenerFavoritoSiCoincide(homeName);
+        const favAway = obtenerFavoritoPorIdAPI(awayId) || obtenerFavoritoSiCoincide(awayName);
         const equipoFavoritoEncontrado = favHome || favAway;
 
         if (equipoFavoritoEncontrado) {
           console.log(`✅ ¡PARTIDO EN VIVO ATRAPADO! -> ${homeName} vs ${awayName}`);
 
-          const statusCorto = fixture.state?.short_name || 'LIVE';
-          const minutoActual = fixture.minute || ''; 
-          
+          const statusCorto = fixture.fixture?.status?.short || '';
+          const elapsed = fixture.fixture?.status?.elapsed || 0;
+          const extra = fixture.fixture?.status?.extra;
+
           let tiempoAmostrar = '';
           if (statusCorto === 'HT') {
             tiempoAmostrar = 'Medio Tiempo';
           } else if (['FT', 'AET', 'PEN'].includes(statusCorto)) {
             tiempoAmostrar = 'Finalizado';
+          } else if (extra) {
+            tiempoAmostrar = `${elapsed} + ${extra}'`;
           } else {
-            tiempoAmostrar = `${minutoActual}'`; 
+            tiempoAmostrar = `${elapsed}'`;
           }
-
-          // Extracción de Goles
-          const homeScoreObj = fixture.scores?.find(s => s.score?.participant === 'home' && s.description === 'CURRENT');
-          const awayScoreObj = fixture.scores?.find(s => s.score?.participant === 'away' && s.description === 'CURRENT');
-          const golesLocal = homeScoreObj?.score?.goals ?? 0;
-          const golesVisitante = awayScoreObj?.score?.goals ?? 0;
 
           const eventos = fixture.events || [];
 
-          // 🧠 1. FILTRO DE GOLES (En Sportmonks el tipo 14 suele ser gol, 16 autogol, 15 penal)
           const anotadoresData = eventos
-            .filter(e => e.type?.code === 'goal' || e.type?.code === 'penalty' || e.type?.code === 'own-goal')
+            .filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty')
             .map(e => ({
-              equipo: fixture.participants?.find(p => p.id === e.participant_id)?.name || 'Desconocido',
-              jugador: e.player_name || 'Desconocido',
-              minuto: e.minute || 0,
-              tipo: e.type?.code === 'own-goal' ? 'Autogol' : e.type?.code === 'penalty' ? 'Penal' : 'Gol'
+              equipo: e.team?.name || 'Desconocido',
+              jugador: e.player?.name || 'Desconocido',
+              minuto: e.time?.elapsed || 0,
+              tipo: e.detail === 'Own Goal' ? 'Autogol' : e.detail === 'Penalty' ? 'Penal' : 'Gol'
             }));
 
-          // 🟨 🟥 2. CAPTURA DE TARJETAS
+          // PROTECCIÓN ANTI-CRASH: Evitar "TypeError: Cannot read properties of null (reading 'toLowerCase')"
           const tarjetasData = eventos
-            .filter(e => e.type?.code === 'yellowcard' || e.type?.code === 'redcard' || e.type?.code === 'yellowredcard')
+            .filter(e => e.type === 'Card')
             .map(e => ({
-              equipo: fixture.participants?.find(p => p.id === e.participant_id)?.name || 'Desconocido',
-              jugador: e.player_name || 'Desconocido',
-              minuto: e.minute || 0,
-              tipo: e.type?.code === 'redcard' ? 'Roja' : 'Amarilla'
+              equipo: e.team?.name || 'Desconocido',
+              jugador: e.player?.name || 'Desconocido',
+              minuto: e.time?.elapsed || 0,
+              tipo: (e.detail || '').toLowerCase().includes('yellow') ? 'Amarilla' : 'Roja'
             }));
 
-          // Como usamos otra API, el idFootball ya no servirá de ID primario, usamos el de TheSportsDB
           const mainFavId = Array.isArray(equipoFavoritoEncontrado.idFootball) 
             ? equipoFavoritoEncontrado.idFootball[0] 
             : equipoFavoritoEncontrado.idFootball;
 
           nuevosEnVivo.push({
-            id: fixture.id, // ID nativo de Sportmonks
+            id: fixture.fixture?.id,
             equipoIdFiltro1: mainFavId,
             equipoIdFiltro2: mainFavId,
-            local: homeName || 'Local',
-            logoLocal: homeTeam?.image_path || null,
-            visitante: awayName || 'Visitante',
-            logoVisitante: awayTeam?.image_path || null,
-            golesLocal: golesLocal,
-            golesVisitante: golesVisitante,
+            local: fixture.teams?.home?.name || 'Local',
+            logoLocal: fixture.teams?.home?.logo || null,
+            visitante: fixture.teams?.away?.name || 'Visitante',
+            logoVisitante: fixture.teams?.away?.logo || null,
+            golesLocal: fixture.goals?.home ?? 0,
+            golesVisitante: fixture.goals?.away ?? 0,
             minuto: tiempoAmostrar,
             estado: statusCorto,
             esEnVivo: true,
@@ -361,18 +362,14 @@ async function buscarPartidosEnVivo() {
           });
         }
       } catch (errLoop) {
-        console.error('⚠️ Error al procesar un partido en vivo de Sportmonks:', errLoop.message);
+        console.error('⚠️ Error al procesar un partido en vivo:', errLoop.message);
       }
     });
 
     partidosEnVivoCache = nuevosEnVivo;
     emitirDatosAlFrontend();
   } catch (error) {
-    if (error.response && error.response.status === 401) {
-       console.error('❌ Error 401: Tu API Token de Sportmonks es inválido o no lo has colocado en el archivo .env');
-    } else {
-       console.error('❌ Error de conexión con Sportmonks al buscar en vivo:', error.message);
-    }
+    console.error('❌ Error de conexión con API-Football al buscar en vivo:', error.message);
   }
 }
 
