@@ -46,7 +46,7 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Liverpool', idFootball: 40, strSearch: 'Liverpool' },
   { nombre: 'Manchester City', idFootball: 50, strSearch: 'Manchester City' },
   { nombre: 'C.D. Águila', idFootball: 2307, strSearch: 'Aguila' },
-  { nombre: 'Inter Miami', idFootball: [9723, 8984], strSearch: 'Inter Miami', logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' },
+  { nombre: 'Inter Miami', idFootball: [9723, 8984], strSearch: 'Inter Miami', logoRespaldo: 'https://r2.thesportsdb.com/images/media/team/badge/m4it3e1602103647.png' },
   { nombre: 'Argentina', idFootball: 26, strSearch: 'Argentina' },
   { nombre: 'Brasil', idFootball: 6, strSearch: 'Brazil' },
   { nombre: 'Inglaterra', idFootball: 10, strSearch: 'England' },
