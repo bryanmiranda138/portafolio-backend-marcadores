@@ -20,7 +20,7 @@ app.get('/debug-live', async (req, res) => {
     const responseLive = await axios.get('https://api.football-data.org/v4/matches?status=IN_PLAY,PAUSED', {
       headers: { 'X-Auth-Token': process.env.FOOTBALL_DATA_KEY }
     });
-    
+
     const partidosJugandose = responseLive.data?.matches || [];
     const resumenEnVivo = partidosJugandose.map(p => ({
       partido: `${p.homeTeam.name} vs ${p.awayTeam.name}`,
@@ -39,19 +39,19 @@ app.get('/debug-live', async (req, res) => {
 
 // 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',   idFootball: 529,  strSearch: 'Barcelona' },
-  { nombre: 'Real Madrid',    idFootball: 541,  strSearch: 'Real Madrid' },
-  { nombre: 'Boca Juniors',   idFootball: 451,  strSearch: 'Boca Juniors' },
-  { nombre: 'River Plate',    idFootball: 435,  strSearch: 'River Plate' },
-  { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
-  { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
-  { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' },
-  { nombre: 'Inter Miami',    idFootball: [9723, 8984], strSearch: 'Inter Miami', logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' },
-  { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
-  { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
-  { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
-  { nombre: 'Francia',        idFootball: 2,    strSearch: 'France' },
-  { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
+  { nombre: 'FC Barcelona', idFootball: 529, strSearch: 'Barcelona' },
+  { nombre: 'Real Madrid', idFootball: 541, strSearch: 'Real Madrid' },
+  { nombre: 'Boca Juniors', idFootball: 451, strSearch: 'Boca Juniors' },
+  { nombre: 'River Plate', idFootball: 435, strSearch: 'River Plate' },
+  { nombre: 'Liverpool', idFootball: 40, strSearch: 'Liverpool' },
+  { nombre: 'Manchester City', idFootball: 50, strSearch: 'Manchester City' },
+  { nombre: 'C.D. Águila', idFootball: 2307, strSearch: 'Aguila' },
+  { nombre: 'Inter Miami', idFootball: [9723, 8984], strSearch: 'Inter Miami', logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' },
+  { nombre: 'Argentina', idFootball: 26, strSearch: 'Argentina' },
+  { nombre: 'Brasil', idFootball: 6, strSearch: 'Brazil' },
+  { nombre: 'Inglaterra', idFootball: 10, strSearch: 'England' },
+  { nombre: 'Francia', idFootball: 2, strSearch: 'France' },
+  { nombre: 'España', idFootball: 9, strSearch: 'Spain' }
 ];
 
 const EXCLUSIONES = [
@@ -70,8 +70,8 @@ const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function extraerEscudoTheSportsDB(objeto) {
   if (!objeto) return null;
-  return objeto.strTeamBadge || objeto.strBadge || objeto.strTeamLogo || 
-         objeto.strLogo || objeto.strHomeTeamBadge || objeto.strAwayTeamBadge || null;
+  return objeto.strTeamBadge || objeto.strBadge || objeto.strTeamLogo ||
+    objeto.strLogo || objeto.strHomeTeamBadge || objeto.strAwayTeamBadge || null;
 }
 
 function encontrarEquipoSportsDB(teamsArray, equipoFav) {
@@ -85,8 +85,8 @@ function encontrarEquipoSportsDB(teamsArray, equipoFav) {
     const strAlt = (t.strTeamAlternate || '').toLowerCase().trim();
     const strKeywords = (t.strKeywords || '').toLowerCase().trim();
     return strTeam === searchNorm || strTeam === nombreFavNorm ||
-           strAlt === searchNorm || strAlt === nombreFavNorm ||
-           (strKeywords && strKeywords.includes(searchNorm));
+      strAlt === searchNorm || strAlt === nombreFavNorm ||
+      (strKeywords && strKeywords.includes(searchNorm));
   });
 
   if (coincidenciaExacta) return coincidenciaExacta;
@@ -168,8 +168,8 @@ async function cargarProximosPartidosProgresivamente() {
 
           if (eventosRealmenteFuturos.length > 0) {
             eventosRealmenteFuturos.sort((a, b) => {
-              const timeA = a.strTimestamp ? new Date(a.strTimestamp).getTime() : new Date(`${a.dateEvent}T${a.strTime||'00:00:00'}+00:00`).getTime();
-              const timeB = b.strTimestamp ? new Date(b.strTimestamp).getTime() : new Date(`${b.dateEvent}T${b.strTime||'00:00:00'}+00:00`).getTime();
+              const timeA = a.strTimestamp ? new Date(a.strTimestamp).getTime() : new Date(`${a.dateEvent}T${a.strTime || '00:00:00'}+00:00`).getTime();
+              const timeB = b.strTimestamp ? new Date(b.strTimestamp).getTime() : new Date(`${b.dateEvent}T${b.strTime || '00:00:00'}+00:00`).getTime();
               return timeA - timeB;
             });
 
@@ -215,7 +215,7 @@ async function cargarProximosPartidosProgresivamente() {
   cargandoProximos = false;
 }
 
-// 2️⃣ API #2: Football-Data.org (Nueva API, Cero Baneos)
+// 2️⃣ API #2: Football-Data.org (Con Algoritmo de Cálculo de Minutos)
 async function buscarPartidosEnVivo() {
   try {
     console.log('🔍 Consultando partidos en vivo en Football-Data.org...');
@@ -240,15 +240,39 @@ async function buscarPartidosEnVivo() {
         const homeShort = match.homeTeam?.shortName || '';
         const awayShort = match.awayTeam?.shortName || '';
 
-        // Buscamos por nombre oficial o por nombre corto
         const favHome = obtenerFavoritoSiCoincide(homeName) || obtenerFavoritoSiCoincide(homeShort);
         const favAway = obtenerFavoritoSiCoincide(awayName) || obtenerFavoritoSiCoincide(awayShort);
         const equipoFavoritoEncontrado = favHome || favAway;
 
         if (equipoFavoritoEncontrado) {
-          // Football-Data devuelve 'PAUSED' para medio tiempo, 'IN_PLAY' para en vivo
           const statusCorto = match.status === 'PAUSED' ? 'HT' : 'LIVE';
-          let tiempoAmostrar = statusCorto === 'HT' ? 'Medio Tiempo' : 'En Vivo';
+
+          // 🧠 ALGORITMO INTELIGENTE PARA CALCULAR EL MINUTO
+          let tiempoAmostrar = 'En Vivo';
+
+          if (match.status === 'PAUSED') {
+            tiempoAmostrar = 'Medio Tiempo';
+          } else if (match.status === 'IN_PLAY' && match.utcDate) {
+            // Tomamos la hora oficial de inicio y la hora actual
+            const inicioPartido = new Date(match.utcDate).getTime();
+            const ahora = Date.now();
+
+            // Calculamos la diferencia en minutos reales
+            const minutosTranscurridos = Math.floor((ahora - inicioPartido) / 60000);
+
+            if (minutosTranscurridos <= 45) {
+              // Primer tiempo
+              tiempoAmostrar = `${minutosTranscurridos}'`;
+            } else if (minutosTranscurridos > 45 && minutosTranscurridos <= 60) {
+              // Si la API tarda en cambiar a 'PAUSED', lo limitamos a 45+
+              tiempoAmostrar = `45+'`;
+            } else {
+              // Segundo tiempo: le restamos los 15 minutos que duró el descanso
+              const minutoSegundoTiempo = minutosTranscurridos - 15;
+              // Si pasa del 90, mostramos 90+
+              tiempoAmostrar = minutoSegundoTiempo > 90 ? `90+'` : `${minutoSegundoTiempo}'`;
+            }
+          }
 
           const golesLocal = match.score?.fullTime?.home ?? 0;
           const golesVisitante = match.score?.fullTime?.away ?? 0;
@@ -256,23 +280,25 @@ async function buscarPartidosEnVivo() {
           const mainFavId = Array.isArray(equipoFavoritoEncontrado.idFootball) ? equipoFavoritoEncontrado.idFootball[0] : equipoFavoritoEncontrado.idFootball;
 
           nuevosEnVivo.push({
-            id: match.id, 
-            equipoIdFiltro1: mainFavId, 
+            id: match.id,
+            equipoIdFiltro1: mainFavId,
             equipoIdFiltro2: mainFavId,
-            local: homeName || 'Local', 
+            local: homeName || 'Local',
             logoLocal: match.homeTeam?.crest || null,
-            visitante: awayName || 'Visitante', 
+            visitante: awayName || 'Visitante',
             logoVisitante: match.awayTeam?.crest || null,
-            golesLocal: golesLocal, 
+            golesLocal: golesLocal,
             golesVisitante: golesVisitante,
-            minuto: tiempoAmostrar, 
-            estado: statusCorto, 
-            esEnVivo: true, 
-            anotadores: [], // Football-Data gratuito no da detalles de goles
-            tarjetas: []    // Football-Data gratuito no da detalles de tarjetas
+            minuto: tiempoAmostrar,
+            estado: statusCorto,
+            esEnVivo: true,
+            anotadores: [],
+            tarjetas: []
           });
         }
-      } catch (errLoop) { console.error('⚠️ Error loop Football-Data:', errLoop.message); }
+      } catch (errLoop) {
+        console.error('⚠️ Error loop Football-Data:', errLoop.message);
+      }
     });
 
     partidosEnVivoCache = nuevosEnVivo;
