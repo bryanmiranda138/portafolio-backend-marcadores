@@ -60,7 +60,7 @@ const EXCLUSIONES = [
 ];
 
 // ⏱️ TEMPORIZADOR RAPIDO: Football-Data permite 10 peticiones POR MINUTO. Cada 3 minutos es súper seguro.
-const INTERVALO_CONSULTA = 3 * 60 * 1000;
+const INTERVALO_CONSULTA = 1 * 60 * 1000;
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
