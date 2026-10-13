@@ -239,20 +239,20 @@ async function cargarProximosPartidosProgresivamente() {
   buscarPartidosEnVivo();
 }
 
-// 🐝 FUNCIÓN NÚCLEO: Raspar el bloque deportivo de Google con ScrapingBee
+// 🐝 FUNCIÓN NÚCLEO BLINDADA: Raspar el bloque deportivo de Google evadiendo CAPTCHAs
 async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, partidoCalendario = null) {
   const token = process.env.SCRAPINGBEE_API_KEY;
   if (!token) return null;
 
   const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryBusqueda)}&hl=es`;
 
-  // Reglas de extracción con IA de ScrapingBee: lee el bloque deportivo de Google sin importar si Google cambia sus clases CSS
+  // Reglas de extracción con IA de ScrapingBee para leer el marcador de Google
   const reglasIA = JSON.stringify({
     local: "Nombre del equipo local en el marcador deportivo principal",
     visitante: "Nombre del equipo visitante en el marcador deportivo principal",
     golesLocal: { description: "Goles del equipo local (número entero, 0 si no ha empezado)", type: "number" },
     golesVisitante: { description: "Goles del equipo visitante (número entero, 0 si no ha empezado)", type: "number" },
-    minuto: "Minuto actual del partido (ej. 34', 45+2', Medio Tiempo, o Finalizado)",
+    minuto: "Minuto actual del partido (ej. 34', 45+2', Medio Tiempo, Finalizado, o fecha si no ha empezado)",
     estado: "Estado del partido: LIVE si está en juego, HT si está en descanso, FT si ya terminó, UPCOMING si no ha empezado",
     goleadores: {
       description: "Lista de goles anotados en el partido en formato 'Jugador Minuto (Equipo)'",
@@ -264,18 +264,49 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     }
   });
 
-  const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
-    params: {
-      api_key: token,
-      url: googleUrl,
-      custom_google: 'true', // Necesario en ScrapingBee para evadir bloqueos en dominios de Google
-      render_js: 'true',
-      ai_extract_rules: reglasIA
-    },
-    timeout: 35000
-  });
+  let datosIA = null;
 
-  const datosIA = response.data;
+  // 🛡️ INTENTO 1: Con Premium Proxy y sin bloquear recursos (Evita el 90% de los CAPTCHAs)
+  try {
+    console.log(`🐝 [Intento 1 - Premium Proxy] Consultando en Google: "${queryBusqueda}"...`);
+    const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+      params: {
+        api_key: token,
+        url: googleUrl,
+        custom_google: 'true',
+        render_js: 'true',
+        block_resources: 'false', // Recomendación #2 de ScrapingBee
+        premium_proxy: 'true',    // Recomendación #3 de ScrapingBee
+        country_code: 'us',
+        ai_extract_rules: reglasIA
+      },
+      timeout: 45000
+    });
+    datosIA = response.data;
+  } catch (errIntento1) {
+    console.warn(`⚠️ Intento 1 bloqueado por CAPTCHA (0 créditos cobrados). Activando Modo Furtivo (Stealth Proxy)...`);
+    
+    // 🛡️ INTENTO 2 (Respaldo): Si Google pide CAPTCHA, activamos stealth_proxy=true
+    const responseStealth = await axios.get('https://app.scrapingbee.com/api/v1/', {
+      params: {
+        api_key: token,
+        url: googleUrl,
+        custom_google: 'true',
+        render_js: 'true',
+        block_resources: 'false',
+        stealth_proxy: 'true',    // Recomendación #4 de ScrapingBee (Máxima evasión anti-CAPTCHA)
+        ai_extract_rules: reglasIA
+      },
+      timeout: 60000
+    });
+    datosIA = responseStealth.data;
+  }
+
+  // Si por si acaso ScrapingBee devuelve un string en vez de objeto JSON, lo parseamos
+  if (typeof datosIA === 'string') {
+    try { datosIA = JSON.parse(datosIA); } catch (e) { return null; }
+  }
+
   if (!datosIA || (!datosIA.local && !datosIA.visitante)) return null;
 
   const estadoUpper = String(datosIA.estado || '').toUpperCase();
@@ -290,12 +321,12 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
                      minutoStr.toLowerCase().includes('descanso');
 
   if (!estaEnVivo && !modoDebug) {
-    return null; // Si no está en vivo y no es una prueba manual, lo ignoramos
+    return null; // Si no está jugando ahora mismo y no es prueba manual, lo ignoramos
   }
 
   const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
 
-  // Convertimos los goleadores extraídos al formato de tu Frontend
+  // Formateamos los goleadores para tu Frontend
   const anotadoresData = (datosIA.goleadores || []).map(item => {
     const texto = String(item);
     const minMatch = texto.match(/(\d+)/);
@@ -307,7 +338,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     };
   });
 
-  // Convertimos las tarjetas extraídas al formato de tu Frontend
+  // Formateamos las tarjetas para tu Frontend
   const tarjetasData = (datosIA.tarjetasRojas || []).map(item => {
     const texto = String(item);
     const minMatch = texto.match(/(\d+)/);
@@ -336,7 +367,6 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     tarjetas: tarjetasData
   };
 }
-
 // 2️⃣ API #2: ScrapingBee con "Smart Trigger" (Cero desperdicio de créditos)
 async function buscarPartidosEnVivo() {
   try {
