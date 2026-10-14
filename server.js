@@ -351,82 +351,86 @@ async function cargarProximosPartidosProgresivamente() {
   buscarPartidosEnVivo();
 }
 
-// 🐝 FUNCIÓN NÚCLEO EN 3 CAPAS: Selectores DOM de Google + Regex de Titulares + Verificador ESPN
+// 🐝 FUNCIÓN NÚCLEO OPTIMIZADA: Primero Gratis (ESPN) -> Respaldo Quirúrgico (ScrapingBee)
 async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, partidoCalendario = null) {
+  const nombreLocalCal = partidoCalendario?.local || equipoFav.nombre;
+  const nombreVisitCal = (partidoCalendario?.visitante && partidoCalendario.visitante !== 'Rival por definir')
+    ? partidoCalendario.visitante
+    : 'Rival';
+  const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
+
+  // 1️⃣ PRIORIDAD 1: Consultamos primero el verificador gratuito (Gasta 0 créditos de ScrapingBee)
+  const datosRespaldoESPN = await consultarRespaldoEnVivoESPN(equipoFav, nombreLocalCal, nombreVisitCal);
+  
+  if (datosRespaldoESPN) {
+    console.log(`⚡ Partido obtenido gratis vía feed directo (${datosRespaldoESPN.local} vs ${datosRespaldoESPN.visitante}). 0 créditos de ScrapingBee usados.`);
+    return {
+      id: partidoCalendario?.id || `live-${mainFavId}`,
+      equipoIdFiltro1: mainFavId,
+      equipoIdFiltro2: mainFavId,
+      local: nombreLocalCal,
+      logoLocal: partidoCalendario?.logoLocal || equipoFav.logoRespaldo || `https://media.api-sports.io/football/teams/${mainFavId}.png`,
+      visitante: nombreVisitCal !== 'Rival' ? nombreVisitCal : datosRespaldoESPN.visitante,
+      logoVisitante: partidoCalendario?.logoVisitante || null,
+      golesLocal: datosRespaldoESPN.golesLocal,
+      golesVisitante: datosRespaldoESPN.golesVisitante,
+      minuto: datosRespaldoESPN.minuto || calcularMinutoPorReloj(partidoCalendario?.timestampInicio),
+      estado: String(datosRespaldoESPN.minuto).toUpperCase().includes('HT') ? 'HT' : 'LIVE',
+      esEnVivo: true,
+      anotadores: datosRespaldoESPN.anotadores || [],
+      tarjetas: datosRespaldoESPN.tarjetas || []
+    };
+  }
+
+  // 2️⃣ PRIORIDAD 2: Solo si no está en el feed gratuito, usamos ScrapingBee en Google
   const token = process.env.SCRAPINGBEE_API_KEY;
-  if (!token) return null;
-
-  const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryBusqueda)}&hl=es`;
-
-  // CAPA 1: Selectores CSS oficiales de Google Sports OneBox (extract_rules no cobra el extra de IA)
-  const reglasDOM = JSON.stringify({
-    localDOM: ".imso_mh__first-tn-ed .imso_mh__tm-nm, .imso_mh__first-tn-ed span",
-    visitanteDOM: ".imso_mh__second-tn-ed .imso_mh__tm-nm, .imso_mh__second-tn-ed span",
-    golesLocalDOM: ".imso_mh__l-tm-sc",
-    golesVisitanteDOM: ".imso_mh__r-tm-sc",
-    minutoDOM: ".imso_mh__lv-m-stts-cont, .imso-ani",
-    estadoFinalDOM: ".imso_mh__ft-mtch",
-    goleadoresDOM: {
-      selector: ".imso_gs__gs-r",
-      type: "list"
-    },
-    titularesGoogle: {
-      selector: "h3, .VwiC3b, .BNeawe",
-      type: "list"
-    }
-  });
-
   let datosDOM = {};
 
-  try {
-    console.log(`🐝 Consultando DOM de Google Sports vía ScrapingBee: "${queryBusqueda}"...`);
-    const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
-      params: {
-        api_key: token,
-        url: googleUrl,
-        custom_google: 'true',
-        render_js: 'true',
-        wait: '2500',
-        block_resources: 'false',
-        premium_proxy: 'true',
-        extract_rules: reglasDOM
-      },
-      timeout: 45000
+  if (token) {
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryBusqueda)}&hl=es`;
+    const reglasDOM = JSON.stringify({
+      localDOM: ".imso_mh__first-tn-ed .imso_mh__tm-nm, .imso_mh__first-tn-ed span",
+      visitanteDOM: ".imso_mh__second-tn-ed .imso_mh__tm-nm, .imso_mh__second-tn-ed span",
+      golesLocalDOM: ".imso_mh__l-tm-sc",
+      golesVisitanteDOM: ".imso_mh__r-tm-sc",
+      minutoDOM: ".imso_mh__lv-m-stts-cont, .imso-ani",
+      estadoFinalDOM: ".imso_mh__ft-mtch",
+      goleadoresDOM: { selector: ".imso_gs__gs-r", type: "list" },
+      titularesGoogle: { selector: "h3, .VwiC3b, .BNeawe", type: "list" }
     });
-    datosDOM = typeof response.data === 'string' ? JSON.parse(response.data) : (response.data || {});
-  } catch (errGoogle) {
-    console.warn(`⚠️ Aviso en petición a Google (${errGoogle.message}). Activando capas de respaldo...`);
+
+    try {
+      console.log(`🐝 Partido no encontrado en feed general. Activando ScrapingBee para: "${queryBusqueda}"...`);
+      const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+        params: {
+          api_key: token,
+          url: googleUrl,
+          custom_google: 'true',
+          render_js: 'true',
+          wait: '2500',
+          block_resources: 'false',
+          premium_proxy: 'true',
+          extract_rules: reglasDOM
+        },
+        timeout: 45000
+      });
+      datosDOM = typeof response.data === 'string' ? JSON.parse(response.data) : (response.data || {});
+    } catch (errGoogle) {
+      console.warn(`⚠️ ScrapingBee sin créditos o bloqueado (${errGoogle.message}). Usando reloj de respaldo.`);
+    }
   }
 
   const nombreLocalFinal = partidoCalendario?.local || datosDOM.localDOM || equipoFav.nombre;
-  const nombreVisitanteFinal = (partidoCalendario?.visitante && partidoCalendario.visitante !== 'Rival por definir')
-    ? partidoCalendario.visitante
-    : (datosDOM.visitanteDOM || 'Rival');
+  const nombreVisitanteFinal = nombreVisitCal !== 'Rival' ? nombreVisitCal : (datosDOM.visitanteDOM || 'Rival');
 
-  // 1️⃣ Intentamos leer los goles directamente del Widget de Google (Capa 1)
-  let golesLocal = datosDOM.golesLocalDOM !== null && datosDOM.golesLocalDOM !== undefined && datosDOM.golesLocalDOM !== ''
-    ? parseInt(datosDOM.golesLocalDOM, 10)
-    : null;
-  let golesVisitante = datosDOM.golesVisitanteDOM !== null && datosDOM.golesVisitanteDOM !== undefined && datosDOM.golesVisitanteDOM !== ''
-    ? parseInt(datosDOM.golesVisitanteDOM, 10)
-    : null;
+  let golesLocal = datosDOM.golesLocalDOM !== undefined && datosDOM.golesLocalDOM !== '' ? parseInt(datosDOM.golesLocalDOM, 10) : null;
+  let golesVisitante = datosDOM.golesVisitanteDOM !== undefined && datosDOM.golesVisitanteDOM !== '' ? parseInt(datosDOM.golesVisitanteDOM, 10) : null;
 
-  // 2️⃣ Si el Widget de Google vino vacío, escaneamos los titulares de la búsqueda de Google (Capa 2)
   if (golesLocal === null || isNaN(golesLocal) || golesVisitante === null || isNaN(golesVisitante)) {
     const marcadorTitulares = extraerMarcadorDeTitularesGoogle(datosDOM.titularesGoogle, nombreLocalFinal, nombreVisitanteFinal);
     if (marcadorTitulares) {
-      console.log(`🎯 Marcador extraído de los titulares de Google: ${marcadorTitulares.golesLocal} - ${marcadorTitulares.golesVisitante}`);
       golesLocal = marcadorTitulares.golesLocal;
       golesVisitante = marcadorTitulares.golesVisitante;
-    }
-  }
-
-  // 3️⃣ Consultamos el verificador secundario en vivo (Capa 3) para asegurar goles exactos, goleadores y tarjetas
-  const datosRespaldoESPN = await consultarRespaldoEnVivoESPN(equipoFav, nombreLocalFinal, nombreVisitanteFinal);
-  if (datosRespaldoESPN) {
-    if (golesLocal === null || isNaN(golesLocal) || (golesLocal === 0 && golesVisitante === 0)) {
-      golesLocal = datosRespaldoESPN.golesLocal;
-      golesVisitante = datosRespaldoESPN.golesVisitante;
     }
   }
 
@@ -436,39 +440,21 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
                                ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
 
   const minutoGoogle = datosDOM.minutoDOM || datosDOM.estadoFinalDOM || '';
-  const hayDatosEnVivo = Boolean(minutoGoogle) || Boolean(datosRespaldoESPN) || enHorarioRealDeJuego;
+  if (!minutoGoogle && !enHorarioRealDeJuego && !modoDebug) return null;
 
-  if (!hayDatosEnVivo && !modoDebug) {
-    return null;
-  }
+  const minutoFinal = minutoGoogle || calcularMinutoPorReloj(partidoCalendario?.timestampInicio);
 
-  let minutoFinal = 'En Vivo';
-  if (minutoGoogle) {
-    minutoFinal = minutoGoogle;
-  } else if (datosRespaldoESPN?.minuto) {
-    minutoFinal = datosRespaldoESPN.minuto;
-  } else if (enHorarioRealDeJuego) {
-    minutoFinal = calcularMinutoPorReloj(partidoCalendario.timestampInicio);
-  }
-
-  // Formateo de goleadores (de Google DOM o del respaldo en vivo)
-  let anotadoresData = [];
-  if (Array.isArray(datosDOM.goleadoresDOM) && datosDOM.goleadoresDOM.length > 0) {
-    anotadoresData = datosDOM.goleadoresDOM.map(texto => {
-      const minMatch = String(texto).match(/(\d+)/);
-      return {
-        equipo: nombreLocalFinal,
-        jugador: String(texto).replace(/\d+'?/g, '').trim(),
-        minuto: minMatch ? Number(minMatch[1]) : 0,
-        tipo: 'Gol'
-      };
-    });
-  } else if (datosRespaldoESPN?.anotadores?.length > 0) {
-    anotadoresData = datosRespaldoESPN.anotadores;
-  }
-
-  const tarjetasData = datosRespaldoESPN?.tarjetas || [];
-  const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
+  const anotadoresData = Array.isArray(datosDOM.goleadoresDOM)
+    ? datosDOM.goleadoresDOM.map(texto => {
+        const minMatch = String(texto).match(/(\d+)/);
+        return {
+          equipo: nombreLocalFinal,
+          jugador: String(texto).replace(/\d+'?/g, '').trim(),
+          minuto: minMatch ? Number(minMatch[1]) : 0,
+          tipo: 'Gol'
+        };
+      })
+    : [];
 
   return {
     id: partidoCalendario?.id || `sb-${mainFavId}`,
@@ -484,7 +470,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     estado: String(minutoFinal).toLowerCase().includes('medio') || String(minutoFinal).toUpperCase() === 'HT' ? 'HT' : 'LIVE',
     esEnVivo: true,
     anotadores: anotadoresData,
-    tarjetas: tarjetasData
+    tarjetas: []
   };
 }
 
