@@ -43,33 +43,33 @@ app.get('/debug-live', async (req, res) => {
       resultado_extraido: resultado
     });
   } catch (error) {
-    res.status(500).json({ 
-      error: error.message, 
-      detalles: error.response?.data || "Error en la ejecución de prueba" 
+    res.status(500).json({
+      error: error.message,
+      detalles: error.response?.data || "Error en la ejecución de prueba"
     });
   }
 });
 
 // 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',   idFootball: 529,  strSearch: 'Barcelona' },
-  { nombre: 'Real Madrid',    idFootball: 541,  strSearch: 'Real Madrid' },
-  { nombre: 'Boca Juniors',   idFootball: 451,  strSearch: 'Boca Juniors' },
-  { nombre: 'River Plate',    idFootball: 435,  strSearch: 'River Plate' },
-  { nombre: 'Liverpool',      idFootball: 40,   strSearch: 'Liverpool' },
-  { nombre: 'Manchester City',idFootball: 50,   strSearch: 'Manchester City' },
-  { nombre: 'C.D. Águila',    idFootball: 2307, strSearch: 'Aguila' },
-  { 
-    nombre: 'Inter Miami',    
-    idFootball: [9723, 8984], 
-    strSearch: 'Inter Miami', 
-    logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png' 
+  { nombre: 'FC Barcelona', idFootball: 529, strSearch: 'Barcelona' },
+  { nombre: 'Real Madrid', idFootball: 541, strSearch: 'Real Madrid' },
+  { nombre: 'Boca Juniors', idFootball: 451, strSearch: 'Boca Juniors' },
+  { nombre: 'River Plate', idFootball: 435, strSearch: 'River Plate' },
+  { nombre: 'Liverpool', idFootball: 40, strSearch: 'Liverpool' },
+  { nombre: 'Manchester City', idFootball: 50, strSearch: 'Manchester City' },
+  { nombre: 'C.D. Águila', idFootball: 2307, strSearch: 'Aguila' },
+  {
+    nombre: 'Inter Miami',
+    idFootball: [9723, 8984],
+    strSearch: 'Inter Miami',
+    logoRespaldo: 'https://media.api-sports.io/football/teams/9723.png'
   },
-  { nombre: 'Argentina',      idFootball: 26,   strSearch: 'Argentina' },
-  { nombre: 'Brasil',         idFootball: 6,    strSearch: 'Brazil' },
-  { nombre: 'Inglaterra',     idFootball: 10,   strSearch: 'England' },
-  { nombre: 'Francia',        idFootball: 2,    strSearch: 'France' },
-  { nombre: 'España',         idFootball: 9,    strSearch: 'Spain' }
+  { nombre: 'Argentina', idFootball: 26, strSearch: 'Argentina' },
+  { nombre: 'Brasil', idFootball: 6, strSearch: 'Brazil' },
+  { nombre: 'Inglaterra', idFootball: 10, strSearch: 'England' },
+  { nombre: 'Francia', idFootball: 2, strSearch: 'France' },
+  { nombre: 'España', idFootball: 9, strSearch: 'Spain' }
 ];
 
 const EXCLUSIONES = [
@@ -77,7 +77,12 @@ const EXCLUSIONES = [
   'liverpool montevideo', 'river plate montevideo', 'real madrid b', 'barcelona b'
 ];
 
-const INTERVALO_CONSULTA = 3 * 60 * 1000;
+// ⏱️ Actualización en tiempo real cada 1 minuto (Gratis para Smart Trigger y ESPN)
+const INTERVALO_CONSULTA = 1 * 60 * 1000;
+
+// 🛡️ Freno exclusivo para ScrapingBee: guarda la última consulta para no llamarlo cada minuto
+const memoriaScrapingBee = new Map();
+const COOLDOWN_SCRAPINGBEE = 12 * 60 * 1000; // ScrapingBee solo se activa máximo cada 12 minutos
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
@@ -87,8 +92,8 @@ const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function extraerEscudoTheSportsDB(objeto) {
   if (!objeto) return null;
-  return objeto.strTeamBadge || objeto.strBadge || objeto.strTeamLogo || 
-         objeto.strLogo || objeto.strHomeTeamBadge || objeto.strAwayTeamBadge || null;
+  return objeto.strTeamBadge || objeto.strBadge || objeto.strTeamLogo ||
+    objeto.strLogo || objeto.strHomeTeamBadge || objeto.strAwayTeamBadge || null;
 }
 
 function encontrarEquipoSportsDB(teamsArray, equipoFav) {
@@ -102,8 +107,8 @@ function encontrarEquipoSportsDB(teamsArray, equipoFav) {
     const strAlt = (t.strTeamAlternate || '').toLowerCase().trim();
     const strKeywords = (t.strKeywords || '').toLowerCase().trim();
     return strTeam === searchNorm || strTeam === nombreFavNorm ||
-           strAlt === searchNorm || strAlt === nombreFavNorm ||
-           (strKeywords && strKeywords.includes(searchNorm));
+      strAlt === searchNorm || strAlt === nombreFavNorm ||
+      (strKeywords && strKeywords.includes(searchNorm));
   });
 
   if (coincidenciaExacta) return coincidenciaExacta;
@@ -158,7 +163,7 @@ function calcularMinutoPorReloj(timestampInicio) {
   if (minutosTranscurridos < 0) return 'Por iniciar';
   if (minutosTranscurridos <= 45) return `${Math.max(1, minutosTranscurridos)}'`;
   if (minutosTranscurridos > 45 && minutosTranscurridos <= 60) return 'Medio Tiempo';
-  
+
   const minutoSegundoTiempo = minutosTranscurridos - 15;
   return minutoSegundoTiempo > 90 ? `90+'` : `${minutoSegundoTiempo}'`;
 }
@@ -208,7 +213,7 @@ async function consultarRespaldoEnVivoESPN(equipoFav, nombreLocalCal, nombreVisi
 
       const coincideFav = obtenerFavoritoSiCoincide(hName) || obtenerFavoritoSiCoincide(aName);
       const coincideCal = (nombreLocalCal && hName.toLowerCase().includes(nombreLocalCal.toLowerCase().split(' ')[0])) ||
-                          (nombreVisitCal && aName.toLowerCase().includes(nombreVisitCal.toLowerCase().split(' ')[0]));
+        (nombreVisitCal && aName.toLowerCase().includes(nombreVisitCal.toLowerCase().split(' ')[0]));
 
       if (coincideFav?.strSearch === equipoFav.strSearch || coincideCal) {
         const detalles = comp.details || [];
@@ -283,13 +288,13 @@ async function cargarProximosPartidosProgresivamente() {
 
           if (eventosRealmenteFuturos.length > 0) {
             eventosRealmenteFuturos.sort((a, b) => {
-              const timeA = a.strTimestamp ? new Date(a.strTimestamp).getTime() : new Date(`${a.dateEvent}T${a.strTime||'00:00:00'}Z`).getTime();
-              const timeB = b.strTimestamp ? new Date(b.strTimestamp).getTime() : new Date(`${b.dateEvent}T${b.strTime||'00:00:00'}Z`).getTime();
+              const timeA = a.strTimestamp ? new Date(a.strTimestamp).getTime() : new Date(`${a.dateEvent}T${a.strTime || '00:00:00'}Z`).getTime();
+              const timeB = b.strTimestamp ? new Date(b.strTimestamp).getTime() : new Date(`${b.dateEvent}T${b.strTime || '00:00:00'}Z`).getTime();
               return timeA - timeB;
             });
 
             const fixtureFutu = eventosRealmenteFuturos[0];
-            
+
             let timestampInicio = null;
             if (fixtureFutu.strTimestamp) {
               const strTs = fixtureFutu.strTimestamp.includes('+') || fixtureFutu.strTimestamp.endsWith('Z') ? fixtureFutu.strTimestamp : `${fixtureFutu.strTimestamp}Z`;
@@ -351,7 +356,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
 
   // 1️⃣ PRIORIDAD 1: Consultamos primero el verificador gratuito (Gasta 0 créditos de ScrapingBee)
   const datosRespaldoESPN = await consultarRespaldoEnVivoESPN(equipoFav, nombreLocalCal, nombreVisitCal);
-  
+
   if (datosRespaldoESPN) {
     console.log(`⚡ Partido obtenido gratis vía feed directo (${datosRespaldoESPN.local} vs ${datosRespaldoESPN.visitante}). 0 créditos de ScrapingBee usados.`);
     return {
@@ -372,11 +377,17 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     };
   }
 
-  // 2️⃣ PRIORIDAD 2: Solo si no está en el feed gratuito, usamos ScrapingBee en Google
+  // 2️⃣ PRIORIDAD 2: Solo si no está en el feed gratuito, usamos ScrapingBee (Con freno de 12 min)
   const token = process.env.SCRAPINGBEE_API_KEY;
   let datosDOM = {};
+  const registroPrevio = memoriaScrapingBee.get(mainFavId);
+  const ahora = Date.now();
 
-  if (token) {
+  if (registroPrevio && (ahora - registroPrevio.timestamp) < COOLDOWN_SCRAPINGBEE && !modoDebug) {
+    // Reutilizamos los goles de hace unos minutos para gastar 0 créditos, mientras el minuto avanza por reloj
+    datosDOM = registroPrevio.datos;
+    console.log(`🛡️ Usando caché de ScrapingBee para ${equipoFav.nombre} (0 créditos gastados en este minuto).`);
+  } else if (token) {
     const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryBusqueda)}&hl=es`;
     const reglasDOM = JSON.stringify({
       localDOM: ".imso_mh__first-tn-ed .imso_mh__tm-nm, .imso_mh__first-tn-ed span",
@@ -390,7 +401,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     });
 
     try {
-      console.log(`🐝 Partido no encontrado en feed general. Activando ScrapingBee para: "${queryBusqueda}"...`);
+      console.log(`🐝 Activando ScrapingBee (máx 1 vez cada 12 min) para: "${queryBusqueda}"...`);
       const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
         params: {
           api_key: token,
@@ -405,11 +416,13 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
         timeout: 45000
       });
       datosDOM = typeof response.data === 'string' ? JSON.parse(response.data) : (response.data || {});
+      // Guardamos el resultado por 12 minutos
+      memoriaScrapingBee.set(mainFavId, { timestamp: ahora, datos: datosDOM });
     } catch (errGoogle) {
       console.warn(`⚠️ ScrapingBee sin créditos o bloqueado (${errGoogle.message}). Usando reloj de respaldo.`);
+      if (registroPrevio) datosDOM = registroPrevio.datos;
     }
   }
-
   const nombreLocalFinal = partidoCalendario?.local || datosDOM.localDOM || equipoFav.nombre;
   const nombreVisitanteFinal = nombreVisitCal !== 'Rival' ? nombreVisitCal : (datosDOM.visitanteDOM || 'Rival');
 
@@ -424,10 +437,10 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     }
   }
 
-  const ahora = Date.now();
-  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio && 
-                               ahora >= partidoCalendario.timestampInicio && 
-                               ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
+ 
+  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio &&
+    ahora >= partidoCalendario.timestampInicio &&
+    ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
 
   const minutoGoogle = datosDOM.minutoDOM || datosDOM.estadoFinalDOM || '';
   if (!minutoGoogle && !enHorarioRealDeJuego && !modoDebug) return null;
@@ -436,14 +449,14 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
 
   const anotadoresData = Array.isArray(datosDOM.goleadoresDOM)
     ? datosDOM.goleadoresDOM.map(texto => {
-        const minMatch = String(texto).match(/(\d+)/);
-        return {
-          equipo: nombreLocalFinal,
-          jugador: String(texto).replace(/\d+'?/g, '').trim(),
-          minuto: minMatch ? Number(minMatch[1]) : 0,
-          tipo: 'Gol'
-        };
-      })
+      const minMatch = String(texto).match(/(\d+)/);
+      return {
+        equipo: nombreLocalFinal,
+        jugador: String(texto).replace(/\d+'?/g, '').trim(),
+        minuto: minMatch ? Number(minMatch[1]) : 0,
+        tipo: 'Gol'
+      };
+    })
     : [];
 
   return {
