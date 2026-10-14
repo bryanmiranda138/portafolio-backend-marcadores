@@ -11,29 +11,22 @@ const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-app.get('/', (req, res) => res.send('⚽ Servidor de Marcadores en vivo (TheSportsDB + ScrapingBee Google DOM) funcionando.'));
+app.get('/', (req, res) => res.send('⚽ Servidor LiveScoresBC (Arquitectura Híbrida Optimizada) funcionando.'));
 app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
 
-// 🚀 Endpoint de Rayos X: Prueba la extracción de 3 capas y actualiza tu panel en Vercel
+// 🚀 Endpoint de Rayos X: Prueba el flujo ahorrador e inyecta el partido en tu panel
 app.get('/debug-live', async (req, res) => {
   try {
-    const token = process.env.SCRAPINGBEE_API_KEY;
-    if (!token) {
-      return res.status(401).json({ error: "Falta configurar SCRAPINGBEE_API_KEY en Render o en tu .env" });
-    }
-
     const equipoPrueba = req.query.equipo || 'Barcelona';
     const favObj = obtenerFavoritoSiCoincide(equipoPrueba) || EQUIPOS_FAVORITOS[0];
     const mainFavId = Array.isArray(favObj.idFootball) ? favObj.idFootball[0] : favObj.idFootball;
 
     const partidoCalendario = cacheProximosPartidos.find(p => p.equipoTrackedId === mainFavId) || null;
-    
-    // Búsqueda limpia sin palabras extra para forzar el widget deportivo de Google
     const queryBusqueda = partidoCalendario && partidoCalendario.visitante !== 'Rival por definir'
       ? `${partidoCalendario.local} vs ${partidoCalendario.visitante}`
       : `${favObj.nombre}`;
 
-    console.log(`🧪 Ejecutando prueba en Google vía ScrapingBee para: "${queryBusqueda}"`);
+    console.log(`🧪 Ejecutando prueba optimizada para: "${queryBusqueda}"`);
     const resultado = await rasparPartidoGoogle(queryBusqueda, favObj, true, partidoCalendario);
 
     if (resultado) {
@@ -52,7 +45,7 @@ app.get('/debug-live', async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       error: error.message, 
-      detalles: error.response?.data || "Verifica tu SCRAPINGBEE_API_KEY" 
+      detalles: error.response?.data || "Error en la ejecución de prueba" 
     });
   }
 });
@@ -170,7 +163,6 @@ function calcularMinutoPorReloj(timestampInicio) {
   return minutoSegundoTiempo > 90 ? `90+'` : `${minutoSegundoTiempo}'`;
 }
 
-// 🔍 CAPA 2: Escáner Regex para leer el marcador desde los titulares de Google si el widget se oculta
 function extraerMarcadorDeTitularesGoogle(textos, nombreLocal, nombreVisitante) {
   if (!Array.isArray(textos) || textos.length === 0) return null;
 
@@ -182,14 +174,12 @@ function extraerMarcadorDeTitularesGoogle(textos, nombreLocal, nombreVisitante) 
     const t = limpiar(rawTexto);
     if (!localKey || !visitKey || visitKey === 'rival') continue;
 
-    // Patrón 1: Local X - Y Visitante
     const regexOrdenNormal = new RegExp(`${localKey}[^0-9\\n]{0,25}?(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2})[^0-9\\n]{0,25}?${visitKey}`, 'i');
     const matchNormal = t.match(regexOrdenNormal);
     if (matchNormal) {
       return { golesLocal: parseInt(matchNormal[1], 10), golesVisitante: parseInt(matchNormal[2], 10) };
     }
 
-    // Patrón 2: Visitante Y - X Local
     const regexOrdenInverso = new RegExp(`${visitKey}[^0-9\\n]{0,25}?(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2})[^0-9\\n]{0,25}?${localKey}`, 'i');
     const matchInverso = t.match(regexOrdenInverso);
     if (matchInverso) {
@@ -199,7 +189,7 @@ function extraerMarcadorDeTitularesGoogle(textos, nombreLocal, nombreVisitante) 
   return null;
 }
 
-// 🛡️ CAPA 3: Verificador en tiempo real con el feed público de ESPN (Respaldo exacto sin gastar créditos)
+// ⚡ PRIORIDAD 1: Feed Público en Vivo de ESPN (0 Créditos, Alta Precisión)
 async function consultarRespaldoEnVivoESPN(equipoFav, nombreLocalCal, nombreVisitCal) {
   try {
     const res = await axios.get('https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard', { timeout: 10000 });
@@ -249,12 +239,12 @@ async function consultarRespaldoEnVivoESPN(equipoFav, nombreLocalCal, nombreVisi
       }
     }
   } catch (e) {
-    console.warn('⚠️ Aviso en verificador secundario:', e.message);
+    console.warn('⚠️ Aviso en feed primario ESPN:', e.message);
   }
   return null;
 }
 
-// 1️⃣ API #1: TheSportsDB (Calendario de Próximos Partidos)
+// 📅 CALENDARIO: TheSportsDB (Próximos Partidos + Reloj Disparador)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
@@ -474,15 +464,9 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
   };
 }
 
-// 2️⃣ API #2: ScrapingBee con "Smart Trigger"
+// 🕒 MONITOR DE PARTIDOS EN VIVO CON SMART TRIGGER
 async function buscarPartidosEnVivo() {
   try {
-    const token = process.env.SCRAPINGBEE_API_KEY;
-    if (!token) {
-      console.error('🛑 ERROR: No se ha configurado la variable SCRAPINGBEE_API_KEY');
-      return;
-    }
-
     const ahora = Date.now();
     const margenAntes = 5 * 60 * 1000;
     const duracionMaxima = 115 * 60 * 1000;
@@ -493,13 +477,13 @@ async function buscarPartidosEnVivo() {
     });
 
     if (partidosEnHorarioDeJuego.length === 0) {
-      console.log('🛡️ Smart Trigger: Ningún equipo favorito está en horario de partido ahora. 0 créditos gastados.');
+      console.log('🛡️ Smart Trigger: Ningún equipo favorito está en horario de partido ahora. 0 peticiones externas realizadas.');
       partidosEnVivoCache = [];
       emitirDatosAlFrontend();
       return;
     }
 
-    console.log(`🐝 ¡Horario de partido detectado! Consultando ${partidosEnHorarioDeJuego.length} partido(s)...`);
+    console.log(`⚽ ¡Horario de partido detectado! Verificando ${partidosEnHorarioDeJuego.length} partido(s)...`);
     let nuevosEnVivo = [];
 
     for (const partidoProg of partidosEnHorarioDeJuego) {
@@ -510,7 +494,6 @@ async function buscarPartidosEnVivo() {
         });
 
         if (equipoFav) {
-          // Búsqueda directa "Local vs Visitante" para activar el marcador oficial de Google
           const query = `${partidoProg.local} vs ${partidoProg.visitante}`;
           const datosVivo = await rasparPartidoGoogle(query, equipoFav, false, partidoProg);
           if (datosVivo) {
@@ -518,14 +501,14 @@ async function buscarPartidosEnVivo() {
           }
         }
       } catch (errPartido) {
-        console.error(`⚠️ Error al raspar ${partidoProg.local} vs ${partidoProg.visitante}:`, errPartido.message);
+        console.error(`⚠️ Error al verificar ${partidoProg.local} vs ${partidoProg.visitante}:`, errPartido.message);
       }
     }
 
     partidosEnVivoCache = nuevosEnVivo;
     emitirDatosAlFrontend();
   } catch (error) {
-    console.error('❌ Error general en ScrapingBee:', error.message);
+    console.error('❌ Error general en monitor en vivo:', error.message);
   }
 }
 
@@ -540,4 +523,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`🚀 Servidor Híbrido 3 Capas corriendo en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Servidor Híbrido Optimizado corriendo en puerto ${PORT}`));
