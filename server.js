@@ -11,13 +11,17 @@ const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-app.get('/', (req, res) => res.send('⚽ Servidor LiveScoresBC (ESPN + TheSportsDB + ScrapingBee) funcionando.'));
-app.get('/debug', (req, res) => res.json({ proximos: cacheProximosPartidos, enVivo: partidosEnVivoCache }));
+app.get('/', (req, res) => res.send('⚽ Servidor LiveScoresBC (ESPN + TheSportsDB El Salvador + ScrapingBee) funcionando.'));
+app.get('/debug', (req, res) => res.json({ 
+  clubesElSalvadorCargados: Object.keys(diccionarioElSalvador).length,
+  proximos: cacheProximosPartidos, 
+  enVivo: partidosEnVivoCache 
+}));
 
 // 🚀 Endpoint de Rayos X: Permite probar cualquier equipo (ej. /debug-live?equipo=Aguila)
 app.get('/debug-live', async (req, res) => {
   try {
-    const equipoPrueba = req.query.equipo || 'Barcelona';
+    const equipoPrueba = req.query.equipo || 'Aguila';
     const favObj = obtenerFavoritoSiCoincide(equipoPrueba) || EQUIPOS_FAVORITOS[0];
     const mainFavId = Array.isArray(favObj.idFootball) ? favObj.idFootball[0] : favObj.idFootball;
 
@@ -47,7 +51,18 @@ app.get('/debug-live', async (req, res) => {
   }
 });
 
-// 📌 TUS EQUIPOS FAVORITOS (Con soporte específico para C.D. Águila en Liga Mayor de El Salvador)
+// 🛡️ Escudo vectorial indestructible (0% probabilidad de error 404) mientras carga el PNG oficial de TheSportsDB
+const ESCUDO_SVG_AGUILA = "data:image/svg+xml;utf8," + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <polygon points="60,6 110,26 98,92 60,114 22,92 10,26" fill="#111111" stroke="#FF6600" stroke-width="6"/>
+  <polygon points="60,16 98,32 88,84 60,102 32,84 22,32" fill="#FF6600"/>
+  <rect x="24" y="28" width="72" height="18" rx="4" fill="#111111"/>
+  <text x="60" y="41" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#FFFFFF" text-anchor="middle">C.D. ÁGUILA</text>
+  <circle cx="60" cy="70" r="20" fill="#111111" stroke="#FFFFFF" stroke-width="2"/>
+  <text x="60" y="76" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#FF6600" text-anchor="middle">🦅</text>
+</svg>`);
+
+// 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
   { nombre: 'FC Barcelona',    idFootball: 529,  idEspn: 83,    idSportsDB: 133739, strSearch: 'Barcelona',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/83.png' },
   { nombre: 'Real Madrid',     idFootball: 541,  idEspn: 86,    idSportsDB: 133738, strSearch: 'Real Madrid',     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/86.png' },
@@ -58,13 +73,13 @@ const EQUIPOS_FAVORITOS = [
   { 
     nombre: 'C.D. Águila',     
     idFootball: 4300, 
-    idEspn: 7270,  
+    idEspn: null,  
     ligaEspn: 'slv.1',
-    idSportsDB: 142622, 
+    idSportsDB: null, 
     strSearch: 'Aguila',
     queryGoogle: 'c d aguila',
     pais: 'El Salvador',
-    logoRespaldo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Escudo_del_Club_Deportivo_%C3%81guila.svg/500px-Escudo_del_Club_Deportivo_%C3%81guila.svg.png' 
+    logoRespaldo: ESCUDO_SVG_AGUILA 
   },
   { nombre: 'Inter Miami',     idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
   { nombre: 'Argentina',       idFootball: 26,   idEspn: 202,   idSportsDB: 133932, strSearch: 'Argentina',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
@@ -80,10 +95,13 @@ const EXCLUSIONES = [
   'aguilas doradas', 'rionegro aguilas'
 ];
 
-// ⏱️ Actualización cada 1 minuto (Gratis en ESPN) + Freno de 12 min exclusivo para ScrapingBee
 const INTERVALO_CONSULTA = 1 * 60 * 1000;
 const memoriaScrapingBee = new Map();
 const COOLDOWN_SCRAPINGBEE = 12 * 60 * 1000;
+let cacheCalendarioGoogleAguila = null;
+
+// 🇸🇻 Diccionario dinámico de clubes de El Salvador (Guarda escudos reales de Águila, FAS, Alianza, Fuerte, etc.)
+let diccionarioElSalvador = {};
 
 let cacheProximosPartidos = [];
 let cargandoProximos = false;
@@ -91,7 +109,6 @@ let partidosEnVivoCache = [];
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 🔤 Normalizador que elimina tildes para reconocer "Águila" y "Club Deportivo Águila"
 function limpiarTexto(texto) {
   return (texto || '')
     .toLowerCase()
@@ -100,12 +117,79 @@ function limpiarTexto(texto) {
     .trim();
 }
 
+function extraerEscudoTheSportsDB(objeto) {
+  if (!objeto) return null;
+  return objeto.strBadge || objeto.strTeamBadge || objeto.strLogo || objeto.strTeamLogo || null;
+}
+
+// 🇸🇻 Carga automática de todos los escudos e IDs de la Liga Mayor de El Salvador
+async function cargarEquiposElSalvador() {
+  try {
+    console.log('🇸🇻 Cargando escudos oficiales de la Liga Mayor de El Salvador...');
+    const res = await axios.get('https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php?s=Soccer&c=El%20Salvador', { timeout: 10000 });
+    const teams = res.data?.teams || [];
+
+    teams.forEach(t => {
+      const badge = extraerEscudoTheSportsDB(t);
+      const nombreLimpio = limpiarTexto(t.strTeam);
+      if (badge) {
+        diccionarioElSalvador[nombreLimpio] = { idSportsDB: t.idTeam, logo: badge, nombreOficial: t.strTeam };
+      }
+
+      // Si encontramos a C.D. Águila en El Salvador, actualizamos su escudo PNG oficial y su ID real
+      if (nombreLimpio.includes('aguila') && !nombreLimpio.includes('aguilas')) {
+        const favAguila = EQUIPOS_FAVORITOS.find(f => f.strSearch === 'Aguila');
+        if (favAguila) {
+          favAguila.idSportsDB = t.idTeam;
+          if (badge) favAguila.logoRespaldo = badge;
+          console.log(`🦅 Escudo oficial de C.D. Águila cargado desde TheSportsDB: ${badge}`);
+        }
+      }
+    });
+
+    // También verificamos el ID de C.D. Águila en ESPN (slv.1)
+    const resEspn = await axios.get('https://site.api.espn.com/apis/site/v2/sports/soccer/slv.1/teams', { timeout: 8000 });
+    const espnTeams = resEspn.data?.sports?.[0]?.leagues?.[0]?.teams || [];
+    espnTeams.forEach(item => {
+      const t = item.team;
+      if (!t) return;
+      const nombreLimpio = limpiarTexto(t.displayName || t.name);
+      const logoEspn = t.logos?.[0]?.href || null;
+
+      if (logoEspn && !diccionarioElSalvador[nombreLimpio]) {
+        diccionarioElSalvador[nombreLimpio] = { idEspn: t.id, logo: logoEspn, nombreOficial: t.displayName };
+      }
+      if (nombreLimpio.includes('aguila')) {
+        const favAguila = EQUIPOS_FAVORITOS.find(f => f.strSearch === 'Aguila');
+        if (favAguila) {
+          favAguila.idEspn = t.id;
+          if (logoEspn && favAguila.logoRespaldo === ESCUDO_SVG_AGUILA) {
+            favAguila.logoRespaldo = logoEspn;
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('⚠️ Aviso al cargar diccionario de El Salvador:', e.message);
+  }
+}
+
+function buscarEscudoClubSalvador(nombreClub) {
+  if (!nombreClub) return null;
+  const norm = limpiarTexto(nombreClub);
+  if (norm.includes('aguila')) {
+    return EQUIPOS_FAVORITOS.find(f => f.strSearch === 'Aguila')?.logoRespaldo || ESCUDO_SVG_AGUILA;
+  }
+  for (const [key, val] of Object.entries(diccionarioElSalvador)) {
+    if (key.includes(norm) || norm.includes(key)) return val.logo;
+  }
+  return null;
+}
+
 function obtenerFavoritoSiCoincide(nombreEquipoAPI) {
   if (!nombreEquipoAPI) return null;
   const nombreNorm = limpiarTexto(nombreEquipoAPI);
   if (EXCLUSIONES.some(ex => nombreNorm.includes(limpiarTexto(ex)))) return null;
-
-  // Evitamos confundir a C.D. Águila con equipos llamados "Águilas" en plural
   if (nombreNorm.includes('aguilas')) return null;
 
   for (const fav of EQUIPOS_FAVORITOS) {
@@ -189,9 +273,8 @@ function extraerMarcadorDeTitularesGoogle(textos, nombreLocal, nombreVisitante) 
   return null;
 }
 
-// 📅 FUNCIÓN AUXILIAR: Obtener el próximo partido desde ESPN (Incluye soporte para 'slv.1')
+// 📅 1. Obtener próximo partido desde ESPN (Revisa perfil de equipo, agenda y scoreboard de la liga)
 async function obtenerProximoPartidoESPN(equipo) {
-  if (!equipo.idEspn && !equipo.ligaEspn) return null;
   const mainFavId = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
   const ahora = Date.now();
   const ligaRuta = equipo.ligaEspn || 'all';
@@ -200,20 +283,36 @@ async function obtenerProximoPartidoESPN(equipo) {
     let candidatos = [];
 
     if (equipo.idEspn) {
-      const urlTeam = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}`;
-      const resTeam = await axios.get(urlTeam, { timeout: 8000 });
-      candidatos = resTeam.data?.team?.nextEvent || [];
+      try {
+        const urlTeam = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}`;
+        const resTeam = await axios.get(urlTeam, { timeout: 8000 });
+        candidatos = resTeam.data?.team?.nextEvent || [];
+      } catch (e) {}
+
+      const eventoValido = candidatos.find(ev => (new Date(ev.date).getTime() + (2 * 60 * 60 * 1000)) > ahora);
+      if (!eventoValido) {
+        try {
+          const urlSched = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}/schedule?fixture=true`;
+          const resSched = await axios.get(urlSched, { timeout: 8000 });
+          candidatos = resSched.data?.events || [];
+        } catch (e) {}
+      }
     }
 
-    const eventoValido = candidatos.find(ev => {
-      const ts = new Date(ev.date).getTime();
-      return (ts + (2 * 60 * 60 * 1000)) > ahora;
-    });
-
-    if (!eventoValido && equipo.idEspn) {
-      const urlSched = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}/schedule?fixture=true`;
-      const resSched = await axios.get(urlSched, { timeout: 8000 });
-      candidatos = resSched.data?.events || [];
+    // Si es de la Liga de El Salvador (slv.1), revisamos también el scoreboard general de slv.1
+    if (candidatos.length === 0 && equipo.ligaEspn) {
+      try {
+        const urlSb = `https://site.api.espn.com/apis/site/v2/sports/soccer/${equipo.ligaEspn}/scoreboard`;
+        const resSb = await axios.get(urlSb, { timeout: 8000 });
+        const todosEventos = resSb.data?.events || [];
+        candidatos = todosEventos.filter(ev => {
+          const comp = ev.competitions?.[0];
+          const hName = comp?.competitors?.[0]?.team?.displayName || '';
+          const aName = comp?.competitors?.[1]?.team?.displayName || '';
+          return obtenerFavoritoSiCoincide(hName)?.nombre === equipo.nombre ||
+                 obtenerFavoritoSiCoincide(aName)?.nombre === equipo.nombre;
+        });
+      } catch (e) {}
     }
 
     const futuros = candidatos
@@ -240,14 +339,13 @@ async function obtenerProximoPartidoESPN(equipo) {
     const esHomeFav = obtenerFavoritoSiCoincide(hName)?.nombre === equipo.nombre || String(homeComp.team?.id) === String(equipo.idEspn);
     const esAwayFav = obtenerFavoritoSiCoincide(aName)?.nombre === equipo.nombre || String(awayComp.team?.id) === String(equipo.idEspn);
 
-    // Si es C.D. Águila, forzamos su escudo oficial para evitar escudos erróneos
-    const logoLocal = (esHomeFav && equipo.ligaEspn === 'slv.1')
-      ? equipo.logoRespaldo
-      : (homeComp.team?.logos?.[0]?.href || (esHomeFav ? equipo.logoRespaldo : null));
+    const logoLocal = esHomeFav
+      ? (equipo.ligaEspn === 'slv.1' ? equipo.logoRespaldo : (homeComp.team?.logos?.[0]?.href || equipo.logoRespaldo))
+      : (homeComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(hName));
 
-    const logoVisitante = (esAwayFav && equipo.ligaEspn === 'slv.1')
-      ? equipo.logoRespaldo
-      : (awayComp.team?.logos?.[0]?.href || (esAwayFav ? equipo.logoRespaldo : null));
+    const logoVisitante = esAwayFav
+      ? (equipo.ligaEspn === 'slv.1' ? equipo.logoRespaldo : (awayComp.team?.logos?.[0]?.href || equipo.logoRespaldo))
+      : (awayComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(aName));
 
     return {
       id: proximo.id,
@@ -269,12 +367,103 @@ async function obtenerProximoPartidoESPN(equipo) {
   }
 }
 
-// 📅 CALENDARIO DUAL: Primero ESPN -> Respaldo TheSportsDB con ID directo
+// 🐝 2. Extraer el próximo partido de C.D. Águila desde Google ("c d aguila") si ESPN/TheSportsDB no lo tienen
+async function obtenerProximoAguilaDesdeGoogle(equipo) {
+  const token = process.env.SCRAPINGBEE_API_KEY;
+  if (!token) return null;
+
+  const ahora = Date.now();
+  // Guardamos en caché por 6 horas para no gastar créditos en cada recarga de calendario
+  if (cacheCalendarioGoogleAguila && (ahora - cacheCalendarioGoogleAguila.timestamp) < (6 * 60 * 60 * 1000)) {
+    return cacheCalendarioGoogleAguila.partido;
+  }
+
+  try {
+    console.log('🐝 Buscando próximo partido de C.D. Águila en Google ("c d aguila")...');
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent('c d aguila')}&hl=es`;
+
+    const reglasCalendario = JSON.stringify({
+      local: "Nombre del equipo local del próximo partido programado de Club Deportivo Águila (ej. Águila o Fuerte)",
+      visitante: "Nombre del equipo visitante del próximo partido programado de Club Deportivo Águila (ej. FAS o Águila)",
+      fechaTexto: "Fecha del próximo partido de Águila en formato DD/MM (ej. 25/10)",
+      horaTexto: "Hora del próximo partido de Águila (ej. 4:00 p.m. o 16:00)"
+    });
+
+    const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+      params: {
+        api_key: token,
+        url: googleUrl,
+        custom_google: 'true',
+        render_js: 'true',
+        wait: '2500',
+        block_resources: 'false',
+        premium_proxy: 'true',
+        ai_extract_rules: reglasCalendario
+      },
+      timeout: 45000
+    });
+
+    const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+    if (!data || (!data.local && !data.visitante)) return null;
+
+    let timestampCalc = null;
+    const matchFecha = String(data.fechaTexto || '').match(/(\d{1,2})[\/\-](\d{1,2})/);
+    if (matchFecha) {
+      const dia = parseInt(matchFecha[1], 10);
+      const mes = parseInt(matchFecha[2], 10) - 1;
+      const anio = new Date().getFullYear();
+
+      let hora = 15;
+      let min = 0;
+      const matchHora = String(data.horaTexto || '').match(/(\d{1,2}):(\d{2})/);
+      if (matchHora) {
+        hora = parseInt(matchHora[1], 10);
+        min = parseInt(matchHora[2], 10);
+        if (String(data.horaTexto).toLowerCase().includes('p') && hora < 12) hora += 12;
+      }
+      // Convertimos hora de El Salvador (UTC-6) a UTC
+      timestampCalc = Date.UTC(anio, mes, dia, hora + 6, min, 0);
+    }
+
+    const mainFavId = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
+    const esLocalAguila = limpiarTexto(data.local).includes('aguila');
+    const nombreLocal = esLocalAguila ? 'C.D. Águila' : (data.local || 'Rival');
+    const nombreVisit = !esLocalAguila ? 'C.D. Águila' : (data.visitante || 'Rival');
+
+    const partidoExtraido = {
+      id: `google-aguila-${mainFavId}`,
+      equipoTrackedId: mainFavId,
+      timestampInicio: timestampCalc,
+      local: nombreLocal,
+      logoLocal: esLocalAguila ? equipo.logoRespaldo : buscarEscudoClubSalvador(nombreLocal),
+      visitante: nombreVisit,
+      logoVisitante: !esLocalAguila ? equipo.logoRespaldo : buscarEscudoClubSalvador(nombreVisit),
+      golesLocal: 0,
+      golesVisitante: 0,
+      minuto: timestampCalc ? formatearFechaElSalvador(timestampCalc) : `${data.fechaTexto || ''} ${data.horaTexto || ''}`.trim() || 'Próximo partido',
+      estado: 'PROXIMO',
+      esEnVivo: false,
+      anotadores: []
+    };
+
+    cacheCalendarioGoogleAguila = { timestamp: ahora, partido: partidoExtraido };
+    return partidoExtraido;
+  } catch (err) {
+    console.warn('⚠️ Aviso al extraer calendario de Águila en Google:', err.message);
+    return null;
+  }
+}
+
+// 📅 CALENDARIO PROGRESIVO (ESPN -> TheSportsDB -> Google Sports para C.D. Águila)
 async function cargarProximosPartidosProgresivamente() {
   if (cargandoProximos) return;
   cargandoProximos = true;
-  console.log('⏳ Sincronizando calendario de próximos partidos (ESPN + TheSportsDB)...');
 
+  if (Object.keys(diccionarioElSalvador).length === 0) {
+    await cargarEquiposElSalvador();
+  }
+
+  console.log('⏳ Sincronizando calendario de próximos partidos...');
   let listaTemporal = [];
   const ahora = Date.now();
 
@@ -282,17 +471,17 @@ async function cargarProximosPartidosProgresivamente() {
     const mainFavId = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
 
     try {
-      // 1️⃣ Intentamos primero con ESPN
+      // 1️⃣ Intento 1: ESPN
       const partidoEspn = await obtenerProximoPartidoESPN(equipo);
       if (partidoEspn) {
         listaTemporal.push(partidoEspn);
         cacheProximosPartidos = [...listaTemporal];
         emitirDatosAlFrontend();
-        await esperar(400);
+        await esperar(300);
         continue;
       }
 
-      // 2️⃣ Respaldo con TheSportsDB usando idSportsDB directo
+      // 2️⃣ Intento 2: TheSportsDB con ID verificado
       if (equipo.idSportsDB) {
         const urlPartidos = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${equipo.idSportsDB}`;
         const resPartidos = await axios.get(urlPartidos, { timeout: 8000 });
@@ -320,9 +509,9 @@ async function cargarProximosPartidosProgresivamente() {
             equipoTrackedId: mainFavId,
             timestampInicio: timestampInicio,
             local: fixtureFutu.strHomeTeam,
-            logoLocal: esLocal ? equipo.logoRespaldo : (fixtureFutu.strHomeTeamBadge || null),
+            logoLocal: esLocal ? equipo.logoRespaldo : (fixtureFutu.strHomeTeamBadge || buscarEscudoClubSalvador(fixtureFutu.strHomeTeam)),
             visitante: fixtureFutu.strAwayTeam,
-            logoVisitante: !esLocal ? equipo.logoRespaldo : (fixtureFutu.strAwayTeamBadge || null),
+            logoVisitante: !esLocal ? equipo.logoRespaldo : (fixtureFutu.strAwayTeamBadge || buscarEscudoClubSalvador(fixtureFutu.strAwayTeam)),
             golesLocal: 0,
             golesVisitante: 0,
             minuto: formatearFechaElSalvador(timestampInicio),
@@ -332,7 +521,18 @@ async function cargarProximosPartidosProgresivamente() {
           });
           cacheProximosPartidos = [...listaTemporal];
           emitirDatosAlFrontend();
-          await esperar(800);
+          await esperar(500);
+          continue;
+        }
+      }
+
+      // 3️⃣ Intento 3 (Especial para C.D. Águila): Extraer el próximo partido directamente de Google ("c d aguila")
+      if (equipo.queryGoogle) {
+        const partidoGoogle = await obtenerProximoAguilaDesdeGoogle(equipo);
+        if (partidoGoogle) {
+          listaTemporal.push(partidoGoogle);
+          cacheProximosPartidos = [...listaTemporal];
+          emitirDatosAlFrontend();
           continue;
         }
       }
@@ -344,7 +544,7 @@ async function cargarProximosPartidosProgresivamente() {
         equipoTrackedId: mainFavId,
         timestampInicio: null,
         local: equipo.nombre,
-        logoLocal: equipo.logoRespaldo,
+        logoLocal: equipo.logoRespaldo, // Siempre tiene el escudo real de TheSportsDB o el SVG indestructible
         visitante: 'Rival por definir',
         logoVisitante: null,
         golesLocal: 0,
@@ -358,14 +558,13 @@ async function cargarProximosPartidosProgresivamente() {
 
     cacheProximosPartidos = [...listaTemporal];
     emitirDatosAlFrontend();
-    await esperar(500);
+    await esperar(400);
   }
 
   cargandoProximos = false;
   buscarPartidosEnVivo();
 }
 
-// ⚡ FUNCIÓN AUXILIAR: Formatear partido en vivo desde ESPN
 function formatearEventoVivoESPN(ev, equipoFav, partidoCalendario = null) {
   const comp = ev.competitions?.[0];
   if (!comp) return null;
@@ -400,11 +599,11 @@ function formatearEventoVivoESPN(ev, equipoFav, partidoCalendario = null) {
 
   const logoLocal = (esHomeFav && equipoFav.ligaEspn === 'slv.1')
     ? equipoFav.logoRespaldo
-    : (homeComp.team?.logos?.[0]?.href || partidoCalendario?.logoLocal || (esHomeFav ? equipoFav.logoRespaldo : null));
+    : (homeComp.team?.logos?.[0]?.href || partidoCalendario?.logoLocal || buscarEscudoClubSalvador(hName) || (esHomeFav ? equipoFav.logoRespaldo : null));
 
   const logoVisitante = (esAwayFav && equipoFav.ligaEspn === 'slv.1')
     ? equipoFav.logoRespaldo
-    : (awayComp.team?.logos?.[0]?.href || partidoCalendario?.logoVisitante || (esAwayFav ? equipoFav.logoRespaldo : null));
+    : (awayComp.team?.logos?.[0]?.href || partidoCalendario?.logoVisitante || buscarEscudoClubSalvador(aName) || (esAwayFav ? equipoFav.logoRespaldo : null));
 
   return {
     id: partidoCalendario?.id || ev.id || `live-${mainFavId}`,
@@ -424,7 +623,7 @@ function formatearEventoVivoESPN(ev, equipoFav, partidoCalendario = null) {
   };
 }
 
-// 🐝 FUNCIÓN NÚCLEO: Primero Gratis (ESPN Global + El Salvador) -> Respaldo (ScrapingBee con Freno de 12 min)
+// 🐝 FUNCIÓN NÚCLEO EN VIVO: Primero ESPN -> Respaldo ScrapingBee ("c d aguila")
 async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, partidoCalendario = null) {
   const nombreLocalCal = partidoCalendario?.local || equipoFav.nombre;
   const nombreVisitCal = (partidoCalendario?.visitante && partidoCalendario.visitante !== 'Rival por definir')
@@ -432,7 +631,6 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     : 'Rival';
   const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
 
-  // 1️⃣ PRIORIDAD 1: Consultamos el scoreboard de la liga del equipo (ej. 'slv.1') y el global ('all')
   const rutasScoreboard = equipoFav.ligaEspn
     ? [`https://site.api.espn.com/apis/site/v2/sports/soccer/${equipoFav.ligaEspn}/scoreboard`, 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard']
     : ['https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard'];
@@ -451,7 +649,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
         const hName = homeComp.team?.displayName || homeComp.team?.name || '';
         const aName = awayComp.team?.displayName || awayComp.team?.name || '';
 
-        const coincidePorId = String(homeComp.team?.id) === String(equipoFav.idEspn) || String(awayComp.team?.id) === String(equipoFav.idEspn);
+        const coincidePorId = equipoFav.idEspn && (String(homeComp.team?.id) === String(equipoFav.idEspn) || String(awayComp.team?.id) === String(equipoFav.idEspn));
         const coincideFav = obtenerFavoritoSiCoincide(hName) || obtenerFavoritoSiCoincide(aName);
 
         if (coincidePorId || coincideFav?.nombre === equipoFav.nombre) {
@@ -461,9 +659,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
           }
         }
       }
-    } catch (e) {
-      console.warn(`⚠️ Aviso al consultar ${urlEspn}:`, e.message);
-    }
+    } catch (e) {}
   }
 
   // 2️⃣ PRIORIDAD 2: ScrapingBee en Google con freno de 12 minutos
@@ -528,21 +724,22 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
                                ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
 
   const minutoGoogle = datosDOM.minutoDOM || datosDOM.estadoFinalDOM || '';
-  if (!minutoGoogle && !enHorarioRealDeJuego && !modoDebug) return null;
+  const estaFinalizado = limpiarTexto(minutoGoogle).includes('finalizado') || limpiarTexto(minutoGoogle) === 'ft';
 
-  const minutoFinal = minutoGoogle || calcularMinutoPorReloj(partidoCalendario?.timestampInicio);
+  if ((!minutoGoogle || estaFinalizado) && !enHorarioRealDeJuego && !modoDebug) return null;
 
-  // Asignamos el escudo oficial en la posición correcta (Local o Visitante)
+  const minutoFinal = (!estaFinalizado && minutoGoogle) ? minutoGoogle : calcularMinutoPorReloj(partidoCalendario?.timestampInicio);
+
   const esVisitanteFav = obtenerFavoritoSiCoincide(nombreVisitanteFinal)?.nombre === equipoFav.nombre;
   const esLocalFav = !esVisitanteFav && (obtenerFavoritoSiCoincide(nombreLocalFinal)?.nombre === equipoFav.nombre || nombreLocalFinal === equipoFav.nombre);
 
   const logoLocalFinal = esLocalFav
     ? equipoFav.logoRespaldo
-    : (partidoCalendario && !esVisitanteFav ? partidoCalendario.logoLocal : null);
+    : (buscarEscudoClubSalvador(nombreLocalFinal) || (partidoCalendario && !esVisitanteFav ? partidoCalendario.logoLocal : null));
 
   const logoVisitanteFinal = esVisitanteFav
     ? equipoFav.logoRespaldo
-    : (partidoCalendario && !esLocalFav ? partidoCalendario.logoVisitante : null);
+    : (buscarEscudoClubSalvador(nombreVisitanteFinal) || (partidoCalendario && !esLocalFav ? partidoCalendario.logoVisitante : null));
 
   const anotadoresData = Array.isArray(datosDOM.goleadoresDOM)
     ? datosDOM.goleadoresDOM.map(texto => {
@@ -566,7 +763,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     logoVisitante: logoVisitanteFinal,
     golesLocal: !isNaN(golesLocal) && golesLocal !== null ? golesLocal : 0,
     golesVisitante: !isNaN(golesVisitante) && golesVisitante !== null ? golesVisitante : 0,
-    minuto: minutoFinal,
+    minuto: modoDebug && estaFinalizado ? `${minutoFinal} (Prueba)` : minutoFinal,
     estado: String(minutoFinal).toLowerCase().includes('medio') || String(minutoFinal).toUpperCase() === 'HT' ? 'HT' : 'LIVE',
     esEnVivo: true,
     anotadores: anotadoresData,
@@ -580,7 +777,6 @@ async function buscarPartidosEnVivo() {
     let nuevosEnVivo = [];
     const idsDetectadosEnESPN = new Set();
 
-    // 1️⃣ Escaneo en vivo gratuito: Marcador Global ('all') + Liga Mayor de El Salvador ('slv.1')
     const urlsScoreboard = [
       'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard',
       'https://site.api.espn.com/apis/site/v2/sports/soccer/slv.1/scoreboard'
@@ -603,7 +799,7 @@ async function buscarPartidosEnVivo() {
           const aName = awayComp.team?.displayName || awayComp.team?.name || '';
 
           const equipoFav = obtenerFavoritoSiCoincide(hName) || obtenerFavoritoSiCoincide(aName) ||
-            EQUIPOS_FAVORITOS.find(f => String(f.idEspn) === String(homeComp.team?.id) || String(f.idEspn) === String(awayComp.team?.id));
+            EQUIPOS_FAVORITOS.find(f => f.idEspn && (String(f.idEspn) === String(homeComp.team?.id) || String(f.idEspn) === String(awayComp.team?.id)));
 
           if (equipoFav) {
             const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
@@ -618,12 +814,9 @@ async function buscarPartidosEnVivo() {
             }
           }
         }
-      } catch (errEspn) {
-        console.warn(`⚠️ Aviso en escaneo de ${url}:`, errEspn.message);
-      }
+      } catch (errEspn) {}
     }
 
-    // 2️⃣ Smart Trigger para ScrapingBee (Usa 'c d aguila' para buscar directamente el bloque de Google)
     const ahora = Date.now();
     const margenAntes = 5 * 60 * 1000;
     const duracionMaxima = 115 * 60 * 1000;
@@ -653,9 +846,12 @@ async function buscarPartidosEnVivo() {
   }
 }
 
-// 🚀 ARRANQUE INMEDIATO EN PARALELO
-buscarPartidosEnVivo();
-cargarProximosPartidosProgresivamente();
+// 🚀 ARRANQUE ORDENADO: Primero carga los escudos de El Salvador y luego sincroniza partidos
+(async () => {
+  await cargarEquiposElSalvador();
+  buscarPartidosEnVivo();
+  cargarProximosPartidosProgresivamente();
+})();
 
 setInterval(buscarPartidosEnVivo, INTERVALO_CONSULTA);
 setInterval(cargarProximosPartidosProgresivamente, 30 * 60 * 1000);
