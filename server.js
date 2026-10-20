@@ -12,9 +12,9 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
 app.get('/', (req, res) => res.send('⚽ Servidor LiveScoresBC funcionando con escudos oficiales de El Salvador.'));
-app.get('/debug', (req, res) => res.json({ 
-  proximos: cacheProximosPartidos, 
-  enVivo: partidosEnVivoCache 
+app.get('/debug', (req, res) => res.json({
+  proximos: cacheProximosPartidos,
+  enVivo: partidosEnVivoCache
 }));
 
 app.get('/limpiar-vivo', (req, res) => {
@@ -48,85 +48,79 @@ app.get('/debug-live', async (req, res) => {
   }
 });
 
-// 🇸🇻 Catálogo directo de escudos oficiales de la Liga Mayor de El Salvador
-// 🇸🇻 Escudos oficiales de la Primera División de El Salvador (CDN oficial ESPN slv.1)
+// 🇸🇻 Caché de escudos oficiales de El Salvador (Se completan dinámicamente desde TheSportsDB)
 const ESCUDOS_LIGA_MAYOR = {
-  // C.D. Águila
-  'aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
-  'cd aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
-  'c.d. aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
-  'club deportivo aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
-
-  // C.D. FAS
-  'fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
-  'cd fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
-  'c.d. fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
-  'club deportivo fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
-
-  // Alianza F.C.
-  'alianza': 'https://a.espncdn.com/i/teamlogos/soccer/500/7269.png',
-  'alianza fc': 'https://a.espncdn.com/i/teamlogos/soccer/500/7269.png',
-
-  // C.D. Luis Ángel Firpo
-  'firpo': 'https://a.espncdn.com/i/teamlogos/soccer/500/7276.png',
-  'luis angel firpo': 'https://a.espncdn.com/i/teamlogos/soccer/500/7276.png',
-
-  // A.D. Isidro Metapán
-  'metapan': 'https://a.espncdn.com/i/teamlogos/soccer/500/7273.png',
-  'isidro metapan': 'https://a.espncdn.com/i/teamlogos/soccer/500/7273.png',
-
-  // C.D. Municipal Limeño
-  'limeno': 'https://a.espncdn.com/i/teamlogos/soccer/500/7274.png',
-  'municipal limeno': 'https://a.espncdn.com/i/teamlogos/soccer/500/7274.png',
-
-  // 11 Deportivo F.C.
-  '11 deportivo': 'https://a.espncdn.com/i/teamlogos/soccer/500/19816.png',
-  'once deportivo': 'https://a.espncdn.com/i/teamlogos/soccer/500/19816.png',
-
-  // C.D. Platense (Zacatecoluca)
-  'platense': 'https://a.espncdn.com/i/teamlogos/soccer/500/20349.png',
-  'cd platense': 'https://a.espncdn.com/i/teamlogos/soccer/500/20349.png',
-
-  // C.D. Dragón
-  'dragon': 'https://a.espncdn.com/i/teamlogos/soccer/500/12423.png',
-  'cd dragon': 'https://a.espncdn.com/i/teamlogos/soccer/500/12423.png',
-
-  // C.D. Fuerte San Francisco
-  'fuerte': 'https://a.espncdn.com/i/teamlogos/soccer/500/22695.png',
-  'fuerte san francisco': 'https://a.espncdn.com/i/teamlogos/soccer/500/22695.png',
-
-  // C.D. Cacahuatique
-  'cacahuatique': 'https://a.espncdn.com/i/teamlogos/soccer/500/22696.png',
-
-  // C.D. Atlético Balboa
-  'balboa': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
-  'atletico balboa': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png'
+  'aguila': null,
+  'cd aguila': null,
+  'fas': null,
+  'cd fas': null,
+  'c.d. fas': null
 };
+
+// 🔍 Consulta directa a TheSportsDB para obtener el badge oficial en r2.thesportsdb.com
+async function resolverEscudoOficial(termino) {
+  try {
+    const res = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(termino)}`, { timeout: 8000 });
+    const equipo = res.data?.teams?.find(t => {
+      const pais = (t.strCountry || '').toLowerCase();
+      return pais.includes('salvador') || t.strSport === 'Soccer';
+    }) || res.data?.teams?.[0];
+
+    return equipo?.strBadge || equipo?.strTeamBadge || equipo?.strLogo || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 🇸🇻 Precarga de escudos de Águila y FAS al iniciar el backend
+async function precargarEscudosElSalvador() {
+  console.log('🇸🇻 Obteniendo escudos oficiales de Águila y FAS desde TheSportsDB...');
+
+  const escudoAguila = await resolverEscudoOficial('Aguila');
+  const escudoFAS = await resolverEscudoOficial('FAS');
+
+  if (escudoAguila) {
+    ESCUDOS_LIGA_MAYOR['aguila'] = escudoAguila;
+    ESCUDOS_LIGA_MAYOR['cd aguila'] = escudoAguila;
+    ESCUDOS_LIGA_MAYOR['c.d. aguila'] = escudoAguila;
+
+    const favAguila = EQUIPOS_FAVORITOS.find(f => f.strSearch === 'Aguila');
+    if (favAguila) favAguila.logoRespaldo = escudoAguila;
+    console.log(`🦅 Escudo Águila cargado: ${escudoAguila}`);
+  }
+
+  if (escudoFAS) {
+    ESCUDOS_LIGA_MAYOR['fas'] = escudoFAS;
+    ESCUDOS_LIGA_MAYOR['cd fas'] = escudoFAS;
+    ESCUDOS_LIGA_MAYOR['c.d. fas'] = escudoFAS;
+    console.log(`🐯 Escudo FAS cargado: ${escudoFAS}`);
+  }
+}
 
 // 📌 TUS EQUIPOS FAVORITOS
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',    idFootball: 529,  idEspn: 83,    idSportsDB: 133739, strSearch: 'Barcelona',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/83.png' },
-  { nombre: 'Real Madrid',     idFootball: 541,  idEspn: 86,    idSportsDB: 133738, strSearch: 'Real Madrid',     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/86.png' },
-  { nombre: 'Boca Juniors',    idFootball: 451,  idEspn: 5,     idSportsDB: 135156, strSearch: 'Boca Juniors',    logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/5.png' },
-  { nombre: 'River Plate',     idFootball: 435,  idEspn: 16,    idSportsDB: 135171, strSearch: 'River Plate',     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/16.png' },
-  { nombre: 'Liverpool',       idFootball: 40,   idEspn: 364,   idSportsDB: 133602, strSearch: 'Liverpool',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/364.png' },
-  { nombre: 'Manchester City', idFootball: 50,   idEspn: 382,   idSportsDB: 133613, strSearch: 'Manchester City', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/382.png' },
-  { 
-    nombre: 'C.D. Águila',     
-    idFootball: 7270, 
-    idEspn: 7270,  
+  { nombre: 'FC Barcelona', idFootball: 529, idEspn: 83, idSportsDB: 133739, strSearch: 'Barcelona', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/83.png' },
+  { nombre: 'Real Madrid', idFootball: 541, idEspn: 86, idSportsDB: 133738, strSearch: 'Real Madrid', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/86.png' },
+  { nombre: 'Boca Juniors', idFootball: 451, idEspn: 5, idSportsDB: 135156, strSearch: 'Boca Juniors', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/5.png' },
+  { nombre: 'River Plate', idFootball: 435, idEspn: 16, idSportsDB: 135171, strSearch: 'River Plate', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/16.png' },
+  { nombre: 'Liverpool', idFootball: 40, idEspn: 364, idSportsDB: 133602, strSearch: 'Liverpool', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/364.png' },
+  { nombre: 'Manchester City', idFootball: 50, idEspn: 382, idSportsDB: 133613, strSearch: 'Manchester City', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/382.png' },
+  {
+    nombre: 'C.D. Águila',
+    idFootball: 7270,
+    idEspn: 7270,
     ligaEspn: 'slv.1',
     strSearch: 'Aguila',
     queryGoogle: 'proximo partido cd aguila',
     pais: 'El Salvador',
     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png'
   },
-  { nombre: 'Inter Miami',     idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
-  { nombre: 'Argentina',       idFootball: 26,   idEspn: 202,   idSportsDB: 133932, strSearch: 'Argentina',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
-  { nombre: 'Brasil',          idFootball: 6,    idEspn: 205,   idSportsDB: 134965, strSearch: 'Brazil',          logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/bra.png' },
-  { nombre: 'Inglaterra',      idFootball: 10,   idEspn: 448,   idSportsDB: 134000, strSearch: 'England',         logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/eng.png' },
-  { nombre: 'Francia',         idFootball: 2,    idEspn: 478,   idSportsDB: 134001, strSearch: 'France',          logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/fra.png' },
-  { nombre: 'España',          idFootball: 9,    idEspn: 164,   idSportsDB: 133997, strSearch: 'Spain',           logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/esp.png' }
+  { nombre: 'Inter Miami', idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
+  { nombre: 'Argentina', idFootball: 26, idEspn: 202, idSportsDB: 133932, strSearch: 'Argentina', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
+  { nombre: 'Brasil', idFootball: 6, idEspn: 205, idSportsDB: 134965, strSearch: 'Brazil', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/bra.png' },
+  { nombre: 'Inglaterra', idFootball: 10, idEspn: 448, idSportsDB: 134000, strSearch: 'England', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/eng.png' },
+  { nombre: 'Francia', idFootball: 2, idEspn: 478, idSportsDB: 134001, strSearch: 'France', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/fra.png' },
+  { nombre: 'España', idFootball: 9, idEspn: 164, idSportsDB: 133997, strSearch: 'Spain', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/esp.png' }
 ];
 
 const EXCLUSIONES = [
@@ -220,7 +214,7 @@ function calcularMinutoPorReloj(timestampInicio) {
   if (minutosTranscurridos < 0) return 'Por iniciar';
   if (minutosTranscurridos <= 45) return `${Math.max(1, minutosTranscurridos)}'`;
   if (minutosTranscurridos > 45 && minutosTranscurridos <= 60) return 'Medio Tiempo';
-  
+
   const minutoSegundoTiempo = minutosTranscurridos - 15;
   return minutoSegundoTiempo > 90 ? `90+'` : `${minutoSegundoTiempo}'`;
 }
@@ -264,7 +258,7 @@ async function obtenerProximoPartidoESPN(equipo) {
         const urlTeam = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}`;
         const resTeam = await axios.get(urlTeam, { timeout: 8000 });
         candidatos = resTeam.data?.team?.nextEvent || [];
-      } catch (e) {}
+      } catch (e) { }
 
       const eventoValido = candidatos.find(ev => (new Date(ev.date).getTime() + (2 * 60 * 60 * 1000)) > ahora);
       if (!eventoValido) {
@@ -272,7 +266,7 @@ async function obtenerProximoPartidoESPN(equipo) {
           const urlSched = `https://site.api.espn.com/apis/site/v2/sports/soccer/${ligaRuta}/teams/${equipo.idEspn}/schedule?fixture=true`;
           const resSched = await axios.get(urlSched, { timeout: 8000 });
           candidatos = resSched.data?.events || [];
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -330,82 +324,20 @@ async function obtenerProximoPartidoESPN(equipo) {
 
 // 📅 CALENDARIO DE C.D. ÁGUILA (Google ScrapingBee con "proximo partido cd aguila" + Clásico contra FAS)
 async function obtenerProximoAguilaDesdeGoogle(equipo) {
-  const token = process.env.SCRAPINGBEE_API_KEY;
-  const ahora = Date.now();
   const mainFavId = Array.isArray(equipo.idFootball) ? equipo.idFootball[0] : equipo.idFootball;
+  const timestampOficial = Date.UTC(2026, 9, 25, 22, 0, 0); // Dom, 25 oct 16:00 El Salvador
 
-  if (cacheCalendarioGoogleAguila && (ahora - cacheCalendarioGoogleAguila.timestamp) < (6 * 60 * 60 * 1000)) {
-    return cacheCalendarioGoogleAguila.partido;
-  }
+  const logoAguila = ESCUDOS_LIGA_MAYOR['aguila'] || equipo.logoRespaldo || '/logos/aguila.png';
+  const logoFAS = ESCUDOS_LIGA_MAYOR['fas'] || '/logos/fas.png';
 
-  // 1️⃣ Consulta a Google con la búsqueda optimizada
-  if (token) {
-    try {
-      const googleUrl = `https://www.google.com/search?q=${encodeURIComponent('proximo partido cd aguila')}&hl=es`;
-      const reglasCalendario = JSON.stringify({
-        local: "Equipo local del próximo partido de Águila (ej. Águila)",
-        visitante: "Equipo visitante del próximo partido de Águila (ej. FAS)",
-        fechaTexto: "Fecha del próximo partido (ej. 25/10)",
-        horaTexto: "Hora del partido (ej. 4:00 p.m. o 16:00)"
-      });
-
-      const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
-        params: {
-          api_key: token,
-          url: googleUrl,
-          custom_google: 'true',
-          render_js: 'true',
-          wait: '2500',
-          block_resources: 'false',
-          premium_proxy: 'true',
-          ai_extract_rules: reglasCalendario
-        },
-        timeout: 45000
-      });
-
-      const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-      if (data && (data.local || data.visitante)) {
-        const esLocalAguila = limpiarTexto(data.local).includes('aguila');
-        const nombreLocal = esLocalAguila ? 'C.D. Águila' : (data.local || 'Rival');
-        const nombreVisit = !esLocalAguila ? 'C.D. Águila' : (data.visitante || 'C.D. FAS');
-
-        // Domingo 25 de Octubre 16:00 El Salvador (22:00 UTC)
-        const timestampCalc = Date.UTC(2026, 9, 25, 22, 0, 0);
-
-        const partidoExtraido = {
-          id: `fixture-aguila-${mainFavId}`,
-          equipoTrackedId: mainFavId,
-          timestampInicio: timestampCalc,
-          local: nombreLocal,
-          logoLocal: esLocalAguila ? equipo.logoRespaldo : (buscarEscudoClubSalvador(nombreLocal) || ESCUDOS_LIGA_MAYOR['fas']),
-          visitante: nombreVisit,
-          logoVisitante: !esLocalAguila ? equipo.logoRespaldo : (buscarEscudoClubSalvador(nombreVisit) || ESCUDOS_LIGA_MAYOR['fas']),
-          golesLocal: 0,
-          golesVisitante: 0,
-          minuto: formatearFechaElSalvador(timestampCalc),
-          estado: 'PROXIMO',
-          esEnVivo: false,
-          anotadores: []
-        };
-
-        cacheCalendarioGoogleAguila = { timestamp: ahora, partido: partidoExtraido };
-        return partidoExtraido;
-      }
-    } catch (err) {
-      console.warn('⚠️ Google calendario Águila aviso:', err.message);
-    }
-  }
-
-  // 2️⃣ Partido confirmado de la Jornada 17: Águila vs C.D. FAS (25 de Octubre 16:00)
-  const timestampOficial = Date.UTC(2026, 9, 25, 22, 0, 0);
   const partidoClasico = {
     id: `j17-aguila-fas`,
     equipoTrackedId: mainFavId,
     timestampInicio: timestampOficial,
     local: 'C.D. Águila',
-    logoLocal: equipo.logoRespaldo,
+    logoLocal: logoAguila,
     visitante: 'C.D. FAS',
-    logoVisitante: ESCUDOS_LIGA_MAYOR['fas'],
+    logoVisitante: logoFAS,
     golesLocal: 0,
     golesVisitante: 0,
     minuto: formatearFechaElSalvador(timestampOficial),
@@ -414,7 +346,6 @@ async function obtenerProximoAguilaDesdeGoogle(equipo) {
     anotadores: []
   };
 
-  cacheCalendarioGoogleAguila = { timestamp: ahora, partido: partidoClasico };
   return partidoClasico;
 }
 
@@ -618,7 +549,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const token = process.env.SCRAPINGBEE_API_KEY;
@@ -676,9 +607,9 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     }
   }
 
-  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio && 
-                               ahora >= partidoCalendario.timestampInicio && 
-                               ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
+  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio &&
+    ahora >= partidoCalendario.timestampInicio &&
+    ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
 
   const minutoGoogle = datosDOM.minutoDOM || datosDOM.estadoFinalDOM || '';
   const estaFinalizado = limpiarTexto(minutoGoogle).includes('finalizado') || limpiarTexto(minutoGoogle) === 'ft';
@@ -759,7 +690,7 @@ async function buscarPartidosEnVivo() {
             }
           }
         }
-      } catch (errEspn) {}
+      } catch (errEspn) { }
     }
 
     const ahora = Date.now();
@@ -793,6 +724,7 @@ async function buscarPartidosEnVivo() {
 
 // 🚀 ARRANQUE INICIAL
 (async () => {
+  await precargarEscudosElSalvador();
   await buscarPartidosEnVivo();
   cargarProximosPartidosProgresivamente();
 })();
