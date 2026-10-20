@@ -263,11 +263,11 @@ async function obtenerProximoPartidoESPN(equipo) {
 
     const logoLocal = esHomeFav
       ? equipo.logoRespaldo
-      : (homeComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(hName));
+      : (homeComp.team?.logo || homeComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(hName));
 
     const logoVisitante = esAwayFav
       ? equipo.logoRespaldo
-      : (awayComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(aName));
+      : (awayComp.team?.logo || awayComp.team?.logos?.[0]?.href || buscarEscudoClubSalvador(aName));
 
     return {
       id: proximo.id,
@@ -520,6 +520,7 @@ async function cargarProximosPartidosProgresivamente() {
   buscarPartidosEnVivo();
 }
 
+// ⚡ FUNCIÓN CORREGIDA: Extrae team.logo (singular en vivo) y team.logos[0].href (plural) sin cruzar escudos
 function formatearEventoVivoESPN(ev, equipoFav, partidoCalendario = null) {
   const comp = ev.competitions?.[0];
   if (!comp) return null;
@@ -549,25 +550,46 @@ function formatearEventoVivoESPN(ev, equipoFav, partidoCalendario = null) {
   const mainFavId = Array.isArray(equipoFav.idFootball) ? equipoFav.idFootball[0] : equipoFav.idFootball;
   const minTexto = comp.status?.type?.shortDetail || comp.status?.displayClock || 'En Vivo';
 
-  const esHomeFav = obtenerFavoritoSiCoincide(hName)?.nombre === equipoFav.nombre || String(homeComp.team?.id) === String(equipoFav.idEspn);
-  const esAwayFav = obtenerFavoritoSiCoincide(aName)?.nombre === equipoFav.nombre || String(awayComp.team?.id) === String(equipoFav.idEspn);
+  // Función interna para resolver el escudo exacto de cada competidor sin mezclar rivales
+  const resolverEscudoCompetidor = (competidor, nombreEquipo) => {
+    // 1. Si es un club salvadoreño con escudo local (Águila o FAS), priorizamos el archivo local
+    const escudoSalvador = buscarEscudoClubSalvador(nombreEquipo);
+    if (escudoSalvador) return escudoSalvador;
 
-  const logoLocal = esHomeFav
-    ? equipoFav.logoRespaldo
-    : (homeComp.team?.logos?.[0]?.href || partidoCalendario?.logoLocal || buscarEscudoClubSalvador(hName));
+    // 2. Escudo directo del evento en vivo de ESPN (En /scoreboard viene en .logo singular)
+    const logoDirectoEspn = competidor.team?.logo || competidor.team?.logos?.[0]?.href;
+    if (logoDirectoEspn) return logoDirectoEspn;
 
-  const logoVisitante = esAwayFav
-    ? equipoFav.logoRespaldo
-    : (awayComp.team?.logos?.[0]?.href || partidoCalendario?.logoVisitante || buscarEscudoClubSalvador(aName));
+    // 3. Si el equipo está en nuestra lista de favoritos, usamos su logoRespaldo
+    const favCoincidente = obtenerFavoritoSiCoincide(nombreEquipo);
+    if (favCoincidente?.logoRespaldo) return favCoincidente.logoRespaldo;
+
+    // 4. Solo usamos el escudo del calendario si el nombre del equipo coincide exactamente
+    if (partidoCalendario) {
+      if (limpiarTexto(partidoCalendario.local) === limpiarTexto(nombreEquipo)) {
+        return partidoCalendario.logoLocal;
+      }
+      if (limpiarTexto(partidoCalendario.visitante) === limpiarTexto(nombreEquipo)) {
+        return partidoCalendario.logoVisitante;
+      }
+    }
+
+    // 5. Respaldo por ID de equipo en la CDN de ESPN
+    if (competidor.team?.id) {
+      return `https://a.espncdn.com/i/teamlogos/soccer/500/${competidor.team.id}.png`;
+    }
+
+    return null;
+  };
 
   return {
-    id: partidoCalendario?.id || ev.id || `live-${mainFavId}`,
+    id: ev.id || partidoCalendario?.id || `live-${mainFavId}`,
     equipoIdFiltro1: mainFavId,
     equipoIdFiltro2: mainFavId,
     local: hName,
-    logoLocal: logoLocal,
+    logoLocal: resolverEscudoCompetidor(homeComp, hName),
     visitante: aName,
-    logoVisitante: logoVisitante,
+    logoVisitante: resolverEscudoCompetidor(awayComp, aName),
     golesLocal: parseInt(homeComp.score, 10) || 0,
     golesVisitante: parseInt(awayComp.score, 10) || 0,
     minuto: minTexto,
