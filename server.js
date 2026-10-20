@@ -49,23 +49,58 @@ app.get('/debug-live', async (req, res) => {
 });
 
 // 🇸🇻 Catálogo directo de escudos oficiales de la Liga Mayor de El Salvador
+// 🇸🇻 Escudos oficiales de la Primera División de El Salvador (CDN oficial ESPN slv.1)
 const ESCUDOS_LIGA_MAYOR = {
-  'aguila': 'https://media.api-sports.io/football/teams/4300.png',
-  'cd aguila': 'https://media.api-sports.io/football/teams/4300.png',
-  'c.d. aguila': 'https://media.api-sports.io/football/teams/4300.png',
-  'club deportivo aguila': 'https://media.api-sports.io/football/teams/4300.png',
-  'fas': 'https://media.api-sports.io/football/teams/4298.png',
-  'cd fas': 'https://media.api-sports.io/football/teams/4298.png',
-  'c.d. fas': 'https://media.api-sports.io/football/teams/4298.png',
-  'club deportivo fas': 'https://media.api-sports.io/football/teams/4298.png',
-  'alianza': 'https://media.api-sports.io/football/teams/4299.png',
-  'alianza fc': 'https://media.api-sports.io/football/teams/4299.png',
-  'firpo': 'https://media.api-sports.io/football/teams/4302.png',
-  'luis angel firpo': 'https://media.api-sports.io/football/teams/4302.png',
-  'balboa': 'https://media.api-sports.io/football/teams/4308.png',
-  'atletico balboa': 'https://media.api-sports.io/football/teams/4308.png',
-  'fuerte': 'https://media.api-sports.io/football/teams/22818.png',
-  'fuerte san francisco': 'https://media.api-sports.io/football/teams/22818.png'
+  // C.D. Águila
+  'aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
+  'cd aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
+  'c.d. aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
+  'club deportivo aguila': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
+
+  // C.D. FAS
+  'fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
+  'cd fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
+  'c.d. fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
+  'club deportivo fas': 'https://a.espncdn.com/i/teamlogos/soccer/500/7272.png',
+
+  // Alianza F.C.
+  'alianza': 'https://a.espncdn.com/i/teamlogos/soccer/500/7269.png',
+  'alianza fc': 'https://a.espncdn.com/i/teamlogos/soccer/500/7269.png',
+
+  // C.D. Luis Ángel Firpo
+  'firpo': 'https://a.espncdn.com/i/teamlogos/soccer/500/7276.png',
+  'luis angel firpo': 'https://a.espncdn.com/i/teamlogos/soccer/500/7276.png',
+
+  // A.D. Isidro Metapán
+  'metapan': 'https://a.espncdn.com/i/teamlogos/soccer/500/7273.png',
+  'isidro metapan': 'https://a.espncdn.com/i/teamlogos/soccer/500/7273.png',
+
+  // C.D. Municipal Limeño
+  'limeno': 'https://a.espncdn.com/i/teamlogos/soccer/500/7274.png',
+  'municipal limeno': 'https://a.espncdn.com/i/teamlogos/soccer/500/7274.png',
+
+  // 11 Deportivo F.C.
+  '11 deportivo': 'https://a.espncdn.com/i/teamlogos/soccer/500/19816.png',
+  'once deportivo': 'https://a.espncdn.com/i/teamlogos/soccer/500/19816.png',
+
+  // C.D. Platense (Zacatecoluca)
+  'platense': 'https://a.espncdn.com/i/teamlogos/soccer/500/20349.png',
+  'cd platense': 'https://a.espncdn.com/i/teamlogos/soccer/500/20349.png',
+
+  // C.D. Dragón
+  'dragon': 'https://a.espncdn.com/i/teamlogos/soccer/500/12423.png',
+  'cd dragon': 'https://a.espncdn.com/i/teamlogos/soccer/500/12423.png',
+
+  // C.D. Fuerte San Francisco
+  'fuerte': 'https://a.espncdn.com/i/teamlogos/soccer/500/22695.png',
+  'fuerte san francisco': 'https://a.espncdn.com/i/teamlogos/soccer/500/22695.png',
+
+  // C.D. Cacahuatique
+  'cacahuatique': 'https://a.espncdn.com/i/teamlogos/soccer/500/22696.png',
+
+  // C.D. Atlético Balboa
+  'balboa': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png',
+  'atletico balboa': 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png'
 };
 
 // 📌 TUS EQUIPOS FAVORITOS
@@ -78,14 +113,13 @@ const EQUIPOS_FAVORITOS = [
   { nombre: 'Manchester City', idFootball: 50,   idEspn: 382,   idSportsDB: 133613, strSearch: 'Manchester City', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/382.png' },
   { 
     nombre: 'C.D. Águila',     
-    idFootball: 4300, 
+    idFootball: 7270, 
     idEspn: 7270,  
     ligaEspn: 'slv.1',
-    idSportsDB: 142622, 
     strSearch: 'Aguila',
-    queryGoogle: 'proximo partido cd aguila', // 🔍 Búsqueda que apunta directo al calendario
+    queryGoogle: 'proximo partido cd aguila',
     pais: 'El Salvador',
-    logoRespaldo: 'https://media.api-sports.io/football/teams/4300.png' // 🦅 Escudo oficial real
+    logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/7270.png'
   },
   { nombre: 'Inter Miami',     idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
   { nombre: 'Argentina',       idFootball: 26,   idEspn: 202,   idSportsDB: 133932, strSearch: 'Argentina',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
