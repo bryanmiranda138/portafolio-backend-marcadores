@@ -4,6 +4,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const axios = require('axios');
+const helmet = require('helmet');
+app.use(helmet());
 
 const app = express();
 app.use(cors());
