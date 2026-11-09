@@ -12,9 +12,9 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
 app.get('/', (req, res) => res.send('⚽ Servidor LiveScoresBC funcionando.'));
-app.get('/debug', (req, res) => res.json({ 
-  proximos: cacheProximosPartidos, 
-  enVivo: partidosEnVivoCache 
+app.get('/debug', (req, res) => res.json({
+  proximos: cacheProximosPartidos,
+  enVivo: partidosEnVivoCache
 }));
 
 app.get('/limpiar-vivo', (req, res) => {
@@ -50,18 +50,18 @@ app.get('/debug-live', async (req, res) => {
 
 // 📌 TUS 12 EQUIPOS FAVORITOS (Sin C.D. Águila)
 const EQUIPOS_FAVORITOS = [
-  { nombre: 'FC Barcelona',    idFootball: 529,  idEspn: 83,    idSportsDB: 133739, strSearch: 'Barcelona',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/83.png' },
-  { nombre: 'Real Madrid',     idFootball: 541,  idEspn: 86,    idSportsDB: 133738, strSearch: 'Real Madrid',     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/86.png' },
-  { nombre: 'Boca Juniors',    idFootball: 451,  idEspn: 5,     idSportsDB: 135156, strSearch: 'Boca Juniors',    logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/5.png' },
-  { nombre: 'River Plate',     idFootball: 435,  idEspn: 16,    idSportsDB: 135171, strSearch: 'River Plate',     logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/16.png' },
-  { nombre: 'Liverpool',       idFootball: 40,   idEspn: 364,   idSportsDB: 133602, strSearch: 'Liverpool',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/364.png' },
-  { nombre: 'Manchester City', idFootball: 50,   idEspn: 382,   idSportsDB: 133613, strSearch: 'Manchester City', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/382.png' },
-  { nombre: 'Inter Miami',     idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
-  { nombre: 'Argentina',       idFootball: 26,   idEspn: 202,   idSportsDB: 133932, strSearch: 'Argentina',       logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
-  { nombre: 'Brasil',          idFootball: 6,    idEspn: 205,   idSportsDB: 134965, strSearch: 'Brazil',          logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/bra.png' },
-  { nombre: 'Inglaterra',      idFootball: 10,   idEspn: 448,   idSportsDB: 134000, strSearch: 'England',         logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/eng.png' },
-  { nombre: 'Francia',         idFootball: 2,    idEspn: 478,   idSportsDB: 134001, strSearch: 'France',          logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/fra.png' },
-  { nombre: 'España',          idFootball: 9,    idEspn: 164,   idSportsDB: 133997, strSearch: 'Spain',           logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/esp.png' }
+  { nombre: 'FC Barcelona', idFootball: 529, idEspn: 83, idSportsDB: 133739, strSearch: 'Barcelona', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/83.png' },
+  { nombre: 'Real Madrid', idFootball: 541, idEspn: 86, idSportsDB: 133738, strSearch: 'Real Madrid', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/86.png' },
+  { nombre: 'Boca Juniors', idFootball: 451, idEspn: 5, idSportsDB: 135156, strSearch: 'Boca Juniors', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/5.png' },
+  { nombre: 'River Plate', idFootball: 435, idEspn: 16, idSportsDB: 135171, strSearch: 'River Plate', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/16.png' },
+  { nombre: 'Liverpool', idFootball: 40, idEspn: 364, idSportsDB: 133602, strSearch: 'Liverpool', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/364.png' },
+  { nombre: 'Manchester City', idFootball: 50, idEspn: 382, idSportsDB: 133613, strSearch: 'Manchester City', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/382.png' },
+  { nombre: 'Inter Miami', idFootball: [9723, 8984], idEspn: 20232, idSportsDB: 139639, strSearch: 'Inter Miami', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/soccer/500/20232.png' },
+  { nombre: 'Argentina', idFootball: 26, idEspn: 202, idSportsDB: 133932, strSearch: 'Argentina', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/arg.png' },
+  { nombre: 'Brasil', idFootball: 6, idEspn: 205, idSportsDB: 134965, strSearch: 'Brazil', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/bra.png' },
+  { nombre: 'Inglaterra', idFootball: 10, idEspn: 448, idSportsDB: 134000, strSearch: 'England', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/eng.png' },
+  { nombre: 'Francia', idFootball: 2, idEspn: 478, idSportsDB: 134001, strSearch: 'France', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/fra.png' },
+  { nombre: 'España', idFootball: 9, idEspn: 164, idSportsDB: 133997, strSearch: 'Spain', logoRespaldo: 'https://a.espncdn.com/i/teamlogos/countries/500/esp.png' }
 ];
 
 const EXCLUSIONES = [
@@ -143,7 +143,7 @@ function calcularMinutoPorReloj(timestampInicio) {
   if (minutosTranscurridos < 0) return 'Por iniciar';
   if (minutosTranscurridos <= 45) return `${Math.max(1, minutosTranscurridos)}'`;
   if (minutosTranscurridos > 45 && minutosTranscurridos <= 60) return 'Medio Tiempo';
-  
+
   const minutoSegundoTiempo = minutosTranscurridos - 15;
   return minutoSegundoTiempo > 90 ? `90+'` : `${minutoSegundoTiempo}'`;
 }
@@ -186,7 +186,7 @@ async function obtenerProximoPartidoESPN(equipo) {
       const urlTeam = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${equipo.idEspn}`;
       const resTeam = await axios.get(urlTeam, { timeout: 8000 });
       candidatos = resTeam.data?.team?.nextEvent || [];
-    } catch (e) {}
+    } catch (e) { }
 
     const eventoValido = candidatos.find(ev => (new Date(ev.date).getTime() + (2 * 60 * 60 * 1000)) > ahora);
     if (!eventoValido) {
@@ -194,7 +194,7 @@ async function obtenerProximoPartidoESPN(equipo) {
         const urlSched = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${equipo.idEspn}/schedule?fixture=true`;
         const resSched = await axios.get(urlSched, { timeout: 8000 });
         candidatos = resSched.data?.events || [];
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const futuros = candidatos
@@ -440,7 +440,7 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const token = process.env.SCRAPINGBEE_API_KEY;
   let datosDOM = {};
@@ -497,9 +497,9 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
     }
   }
 
-  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio && 
-                               ahora >= partidoCalendario.timestampInicio && 
-                               ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
+  const enHorarioRealDeJuego = partidoCalendario?.timestampInicio &&
+    ahora >= partidoCalendario.timestampInicio &&
+    ahora <= (partidoCalendario.timestampInicio + (115 * 60 * 1000));
 
   const minutoGoogle = datosDOM.minutoDOM || datosDOM.estadoFinalDOM || '';
   const estaFinalizado = limpiarTexto(minutoGoogle).includes('finalizado') || limpiarTexto(minutoGoogle) === 'ft';
@@ -521,14 +521,14 @@ async function rasparPartidoGoogle(queryBusqueda, equipoFav, modoDebug = false, 
 
   const anotadoresData = Array.isArray(datosDOM.goleadoresDOM)
     ? datosDOM.goleadoresDOM.map(texto => {
-        const minMatch = String(texto).match(/(\d+)/);
-        return {
-          equipo: nombreLocalFinal,
-          jugador: String(texto).replace(/\d+'?/g, '').trim(),
-          minuto: minMatch ? Number(minMatch[1]) : 0,
-          tipo: 'Gol'
-        };
-      })
+      const minMatch = String(texto).match(/(\d+)/);
+      return {
+        equipo: nombreLocalFinal,
+        jugador: String(texto).replace(/\d+'?/g, '').trim(),
+        minuto: minMatch ? Number(minMatch[1]) : 0,
+        tipo: 'Gol'
+      };
+    })
     : [];
 
   return {
@@ -586,7 +586,7 @@ async function buscarPartidosEnVivo() {
           }
         }
       }
-    } catch (errEspn) {}
+    } catch (errEspn) { }
 
     const ahora = Date.now();
     const margenAntes = 5 * 60 * 1000;
